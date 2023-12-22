@@ -89,24 +89,14 @@ def main():
         pickle.dump((matrix, distortion), open(".\\data\\calibration.pkl", "wb"))
 
         # Displaying result
-        print(" Camera matrix:")
-        print(matrix)
+        print("Camera matrix:", matrix)
 
-        print("\n Distortion coefficient:")
-        print(distortion)
+        print("\nDistortion coefficient:", distortion)
 
-        print("\n Rotation Vectors:")
-        print(r_vecs)
+        print("\nRotation Vectors:", r_vecs)
+        print("\nTranslation Vectors: ", t_vecs)
 
-        print("\n Translation Vectors:")
-        print(t_vecs)
-
-        mean_error = 0
-        for i in range(len(points_3d)):
-            imgpoints2, _ = cv.projectPoints(points_3d[i], r_vecs[i], t_vecs[i], matrix, distortion)
-            error = cv.norm(points_2d[i], imgpoints2, cv.NORM_L2) / len(imgpoints2)
-            mean_error += error
-        print("total error: {}".format(mean_error / len(points_3d)))
+        print("RMS: ", ret)
     else:
         print("No useful frames")
 
