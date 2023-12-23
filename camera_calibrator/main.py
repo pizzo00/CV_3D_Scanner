@@ -34,15 +34,15 @@ def main():
     video = cv.VideoCapture('.\\data\\calibration.mov')
 
     # Loop the frames in the video and take NUM_OF_FRAMES equally spaced frames
-    frame_length = int(video.get(cv.CAP_PROP_FRAME_COUNT))
-    step = frame_length // NUM_OF_FRAMES
+    video_length = int(video.get(cv.CAP_PROP_FRAME_COUNT))
+    step = video_length // NUM_OF_FRAMES
     for i in range(NUM_OF_FRAMES):
         video.set(cv.CAP_PROP_POS_FRAMES, i*step)
         success, image = video.read()
         if success:
             images.append(image)
 
-    # for i in range(frame_length):
+    # for i in range(video_length):
     #     success, image = video.read()  # TODO this is slow search for a skip(n) func
     #     if (i % step) == 0:
     #         # Take this frame
@@ -85,7 +85,7 @@ def main():
         ret, matrix, distortion, r_vecs, t_vecs = cv.calibrateCamera(
             points_3d, points_2d, gray_img.shape[::-1], None, None)
 
-        # Save the camera calibration result for later use (we won't worry about rvecs / tvecs)
+        # Save the camera calibration result for later use
         pickle.dump((matrix, distortion), open(".\\data\\calibration.pkl", "wb"))
 
         # Displaying result
