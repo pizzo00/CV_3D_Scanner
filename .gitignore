@@ -2,3 +2,5 @@
 camera_calibrator/data/
 
 scanner/data/
+
+scanner/__pycache__/

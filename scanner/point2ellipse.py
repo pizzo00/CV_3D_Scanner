@@ -5,24 +5,25 @@
 #     s = 0
 #     for
 from typing import Tuple
-
+import cv2 as cv
+import numpy as np
 from numpy import sqrt
-
 import polar_utility
 
 
-def pointEllipseDistance(ellipse: Tuple[Tuple[float, float], Tuple[float, float], float], p: Tuple[float, float]) -> float:
+def point_ellipse_distance(ellipse: cv.typing.RotatedRect, p: Tuple[float, float]) -> float:
     cx = ellipse[0][0]
     cy = ellipse[0][1]
-    rx = ellipse[1][0]
-    ry = ellipse[1][1]
+    rx = ellipse[1][0]/2
+    ry = ellipse[1][1]/2
+    # ellipse[2] from rotated to straight = anti-clockwise
 
     # ellipse center is (0,0)
     px = p[0] - cx
     py = p[1] - cy
 
     radius, angle = polar_utility.cartesian_to_polar(px, py)
-    px, py = polar_utility.polar_to_cartesian(radius - ellipse[2], angle)
+    px, py = polar_utility.polar_to_cartesian(radius, angle + np.deg2rad(ellipse[2]))
 
     px2 = pow(px, 2)
     py2 = pow(py, 2)
