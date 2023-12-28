@@ -12,37 +12,56 @@ class MarkerColors(Enum):
     Magenta = 'M'
     White = 'W'
     Black = 'B'
+    NoneColor = 'N'
 
     @staticmethod
-    def get_from_pixel_debug(pixel: List[float]) -> Tuple[int, int, int]:
-        threshold = 75
-        r = pixel[0]
-        g = pixel[1]
-        b = pixel[2]
+    def _get_pixel_safe(image, x: int, y: int) -> List[float] | None:
+        if image is None:
+            return None
+        h, w = image.shape[:2]
+        if 0 < x < w and 0 < y < h:
+            return image[y][x]
+        return None
 
-        #return (int(r), int(g), int(b))
+    @staticmethod
+    def get_from_pixel_debug(image, x: int, y: int) -> Tuple[int, int, int]:
+        pixel = MarkerColors._get_pixel_safe(image, x, y)
+        if pixel is None:
+            return 150, 150, 150
+
+        threshold = 75
+        r = pixel[2]
+        g = pixel[1]
+        b = pixel[0]
+
+        # return (int(r), int(g), int(b))
 
         rt = r > threshold
         gt = g > threshold
         bt = b > threshold
 
         if rt and gt and bt:
-            return (255, 255, 255)
+            return 255, 255, 255
         if gt and bt:
-            return (0, 255, 255)
+            return 255, 255, 0
         if rt and gt:
-            return (255, 255, 0)
+            return 0, 255, 255
         if rt and bt:
-            return (255, 0, 255)
-        return (0, 0, 0)
-        # TODO return none
+            return 255, 0, 255
+        if not rt and not gt and not bt:
+            return 0, 0, 0
+        return 150, 150, 150
 
     @staticmethod
-    def get_from_pixel(pixel: List[float]) -> 'MarkerColors':
+    def get_from_pixel(image, x: int, y: int) -> 'MarkerColors':
+        pixel = MarkerColors._get_pixel_safe(image, x, y)
+        if pixel is None:
+            return MarkerColors.NoneColor
+
         threshold = 75
-        r = pixel[0]
+        r = pixel[2]
         g = pixel[1]
-        b = pixel[2]
+        b = pixel[0]
         rt = r > threshold
         gt = g > threshold
         bt = b > threshold
@@ -55,8 +74,9 @@ class MarkerColors(Enum):
             return MarkerColors.Yellow
         if rt and bt:
             return MarkerColors.Magenta
-        return MarkerColors.Black
-        # TODO return none
+        if not rt and not gt and not bt:
+            return MarkerColors.Black
+        return MarkerColors.NoneColor
 
 
 class CircularMarker:
@@ -64,7 +84,7 @@ class CircularMarker:
 
     colors = ['Y', 'W', 'M', 'B', 'M', 'M', 'C', 'C', 'C', 'Y', 'W', 'B', 'M', 'Y', 'W', 'B', 'Y', 'W', 'B', 'C']
     _number_of_markers = len(colors)  # = 20
-    _radius = 750
+    _radius = 75
     _angle_diff = np.deg2rad(360 / 20)
 
     def __new__(cls):

@@ -7,6 +7,7 @@ import numpy as np
 import cv2 as cv
 import imutils
 
+from geometry import Rectangle
 from undistorion import undistort_image, get_new_camera_matrix, get_distortion, get_h_w
 
 
@@ -21,94 +22,93 @@ def get_angle(center: Tuple[float, float], point: Tuple[float, float]):
     return angle
 
 
-def ransac2(image, center: Tuple[float, float], centers: List[List[float]]):
+def marker_positioning(image, center: Tuple[float, float], centers: List[List[int]]):
     circular_marker = CircularMarker()
+    export = image.copy()
 
-    # n = cv.getTrackbarPos('n', 'Ransac')
-    k = cv.getTrackbarPos('k', 'Ransac')
-    t = cv.getTrackbarPos('t', 'Ransac')
-    d = cv.getTrackbarPos('d', 'Ransac')
+    img_points = []
+    dst_points = []
+    marker_idx_img_points = [[] for _ in circular_marker.points]
+    centers = sorted(centers, reverse=True, key=lambda x: get_angle(center, x))
 
-    n = 4
+    i = 0
+    while i < len(centers):
+        export = cv.putText(export, str(i), centers[i], cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
-    best_model = None
-    best_consensus_set = None
-    best_error = 0
-    for iteration in range(k):
-        # possible_inliers_idx = set(random.sample([i for i in range(len(centers))], n))
-        # possible_inliers = [centers[i] for i in possible_inliers_idx]
-        # possible_inliers = sorted(possible_inliers, key=lambda x: get_angle(center, x))
-
-        # ###################################
-        centers = sorted(centers, reverse=True, key=lambda x: get_angle(center, x))
-        possible_inliers_idx = random.randrange(0, len(centers))
-        possible_inliers = [
-                centers[possible_inliers_idx],
-                centers[(possible_inliers_idx + 1) % len(centers)],
-                centers[(possible_inliers_idx + 2) % len(centers)],
-                centers[(possible_inliers_idx + 3) % len(centers)],
+        img_points_temp = [
+                centers[i],
+                centers[(i + 1) % len(centers)],
+                centers[(i + 2) % len(centers)],
+                centers[(i + 3) % len(centers)],
              ]
-        # ###################################
 
         colors = []
-        for i in possible_inliers:
-            colors.append(MarkerColors.get_from_pixel(image[i[1]][i[0]]))
+        for m in img_points_temp:
+            colors.append(MarkerColors.get_from_pixel(image, m[0], m[1]))
 
-        export = image.copy()
-        for i in possible_inliers:
-            cv.line(export, (0, 0), i, MarkerColors.get_from_pixel_debug(image[i[1]][i[0]]), 2)
-        #cv.imwrite(".\\data\\debug\\image.jpg", export)
+        # for m in markers:
+        #     cv.line(export, (0, 0), m, MarkerColors.get_from_pixel_debug(image, m[0], m[1]), 2)
+        # cv.imwrite(".\\data\\debug\\image.jpg", export)
 
         marker_idx = circular_marker.get_markers_position(colors)
         if marker_idx is not None:
-            marker_points = circular_marker.get_markers_points(marker_idx)
+            dst_points_temp = circular_marker.get_markers_points(marker_idx)
+            img_points.extend(img_points_temp)
+            dst_points.extend(dst_points_temp)
+            marker_idx_img_points[marker_idx].append(i)
+            marker_idx_img_points[(marker_idx + 1) % len(circular_marker.points)].append((i + 1) % len(centers))
+            marker_idx_img_points[(marker_idx + 2) % len(circular_marker.points)].append((i + 1) % len(centers))
+            marker_idx_img_points[(marker_idx + 3) % len(circular_marker.points)].append((i + 1) % len(centers))
+        #     i += 4
+        # else:
+        i += 1
 
-            next_marker_idx = marker_idx + 4
-            next_center_idx = possible_inliers_idx + 4
-            next_center = centers[next_center_idx % len(centers)]
-            while (next_center_idx != (possible_inliers_idx % len(centers)) and
-                   MarkerColors.get_from_pixel(image[next_center[1], next_center[0]]) == circular_marker.get_marker_color(next_marker_idx)):
-                possible_inliers.append(centers[next_center_idx])
-                marker_points.append(circular_marker.get_markers_point(next_marker_idx))
-                next_marker_idx += 1
-                next_center_idx += 1
-                next_center = centers[next_center_idx % len(centers)]
+    img_points = []
+    dst_points = []
+    for i, m in enumerate(marker_idx_img_points):
+        if len(m) > 0:
+            most_frequent = max(set(m), key=m.count)
+            if m.count(most_frequent) > 1:
+                dst_points.append(circular_marker.get_markers_point(i))
+                img_points.append(centers[most_frequent])
+                # export = cv.putText(export, str(i), centers[most_frequent], cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-            h, w = get_h_w()
+    export = imutils.resize(export, height=600)
+    cv.imshow("Img_3", export)
 
-            #   ---------------- find homograpy
-            #M, mask = cv.findHomography(np.array(possible_inliers).astype('float32'), np.array([[m[0], m[1]] for m in marker_points]))
-            #img_out = cv.warpPerspective(image, M, (600, 600))
+    if len(img_points) > 4:
+        #   ---------------- find homograpy
+        M, mask = cv.findHomography(np.array(img_points).astype('float32'), np.array([[m[0]+300, m[1]+300] for m in dst_points]))
+        img_out = cv.warpPerspective(image, M, (600, 600))
 
+        img_out = imutils.resize(img_out, height=600)
+        # cv.imshow("Img_3", img_out)
 
-            #img_out = imutils.resize(img_out, height=600)
-            #cv.imshow("Img_3", img_out)
-
-            new_camera_matrix = get_new_camera_matrix()
-            distortion = get_distortion()  # np.zeros((4, 1))
-            success, rotation_vector, translation_vector = cv.solvePnP(np.array(marker_points), np.array(possible_inliers).astype('float32'), new_camera_matrix, distortion, flags=cv.SOLVEPNP_IPPE)
-
-            test_point, _ = cv.projectPoints(np.array(circular_marker.get_marker_point(marker_idx-1)), rotation_vector, translation_vector, new_camera_matrix, distortion)
-            test_point_x = int(test_point[0][0][0])
-            test_point_y = int(test_point[0][0][1])
-            zero_point, _ = cv.projectPoints(np.array([0.0, 0.0, 0.0]), rotation_vector, translation_vector, new_camera_matrix, np.zeros((4, 1)))
-            zero_point_x = int(zero_point[0][0][0])
-            zero_point_y = int(zero_point[0][0][1])
-            cv.line(export, (0, 0), (zero_point_x, zero_point_y), (0, 0, 0), 4)
-            cv.imwrite(".\\data\\debug\\image.jpg", export)
-
-            # if 0 <= test_point_x < w and 0 <= test_point_y < h and \
-            #    MarkerColors.get_from_pixel(image[test_point_y][test_point_x]) == circular_marker.get_marker_color(marker_idx-1):
-            zero, jacobian = cv.projectPoints(np.array([(0.0, 0.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, np.zeros((4, 1)))
-            x_axis, jacobian = cv.projectPoints(np.array([(1000.0, 0.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, np.zeros((4, 1)))
-            y_axis, _ = cv.projectPoints(np.array([(0.0, 1000.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, np.zeros((4, 1)))
-            z_axis, _ = cv.projectPoints(np.array([(0.0, 0.0, 1000.0)]), rotation_vector, translation_vector, new_camera_matrix, np.zeros((4, 1)))
-
-            return zero[0][0].astype('int'), x_axis[0][0].astype('int'), y_axis[0][0].astype('int'), z_axis[0][0].astype('int')
+        # new_camera_matrix = get_new_camera_matrix()
+        # distortion = np.zeros((4, 1))  # success get_distortion()
+        # success, rotation_vector, translation_vector = cv.solvePnP(np.array(dst_points), np.array(img_points).astype('float32'), new_camera_matrix, distortion, flags=cv.SOLVEPNP_IPPE)
+        #
+        # # test_point, _ = cv.projectPoints(np.array(circular_marker.get_marker_point(marker_idx-1)), rotation_vector, translation_vector, new_camera_matrix, distortion)
+        # # test_point_x = int(test_point[0][0][0])
+        # # test_point_y = int(test_point[0][0][1])
+        # # zero_point, _ = cv.projectPoints(np.array([0.0, 0.0, 0.0]), rotation_vector, translation_vector, new_camera_matrix, distortion)
+        # # zero_point_x = int(zero_point[0][0][0])
+        # # zero_point_y = int(zero_point[0][0][1])
+        # # cv.line(export, (0, 0), (zero_point_x, zero_point_y), (0, 0, 0), 4)
+        # # cv.imwrite(".\\data\\debug\\image.jpg", export)
+        #
+        # # if 0 <= test_point_x < w and 0 <= test_point_y < h and \
+        # #    MarkerColors.get_from_pixel(image[test_point_y][test_point_x]) == circular_marker.get_marker_color(marker_idx-1):
+        # zero, jacobian = cv.projectPoints(np.array([(0.0, 0.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
+        # x_axis, jacobian = cv.projectPoints(np.array([(1000.0, 0.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
+        # y_axis, _ = cv.projectPoints(np.array([(0.0, 1000.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
+        # z_axis, _ = cv.projectPoints(np.array([(0.0, 0.0, 1000.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
+        #
+        # return zero[0][0].astype('int'), x_axis[0][0].astype('int'), y_axis[0][0].astype('int'), z_axis[0][0].astype('int')
 
     return None
-            # rotation_vector = cv.Rodrigues(rotation_vector)
-            # translation_vector = cv.Rodrigues(translation_vector)
+    # rotation_vector = cv.Rodrigues(rotation_vector)
+    # translation_vector = cv.Rodrigues(translation_vector)
 
 
 def ransac(centers: List[List[float]]):
@@ -198,20 +198,35 @@ def main():
             # Blur an image
             bilateral_filtered_image = cv.bilateralFilter(thresh_img, 5, sigma, sigma)
 
+            morph_size = 2
+            kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (2 * morph_size + 1, 2 * morph_size + 1), (morph_size, morph_size))
+
             # Detect edges
             edge_detected_image = cv.Canny(bilateral_filtered_image, a_canny, b_canny)
 
+            edge_detected_image = cv.morphologyEx(edge_detected_image, cv.MORPH_CLOSE, kernel, iterations=4)
+
             # Find contours
-            contours, _ = cv.findContours(edge_detected_image, cv.RETR_TREE, cv.CHAIN_APPROX_NONE)
+            contours, hierarchy = cv.findContours(edge_detected_image, cv.RETR_TREE, cv.CHAIN_APPROX_NONE)
 
             # Find the rotated rectangles and ellipses for each contour
-            rects: List[cv.typing.RotatedRect | None] = [None] * len(contours)
+            rects: List[Rectangle] = []
             ellipses: List[cv.typing.RotatedRect | None] = [None] * len(contours)
+
             for i, c in enumerate(contours):
+                # x1, y1 = c[0][0]
+                points = cv.approxPolyDP(c, 0.01*cv.arcLength(c, True), True)
+                first_child = hierarchy[0][i][2]
+                if len(points) == 4 and first_child == -1:
+                    rects.append(Rectangle(cv.boundingRect(c), points))
+
                 if ellipses_min_points < c.shape[0] < ellipses_max_points:
-                    rects[i] = cv.minAreaRect(c)
+                    # rects[i] = cv.minAreaRect(c)
                     ellipses[i] = cv.fitEllipse(c)
-            # Draw contours + rotated rects + ellipses
+
+            wall_rect = max(rects, key=lambda x: x.area)
+            for p in range(len(wall_rect.points)):
+                clone = cv.line(clone, wall_rect.points[p][0], wall_rect.points[(p + 1) % len(wall_rect.points)][0], (0, 0, 255), 2)
 
             for i, c in enumerate(contours):
                 if ellipses[i] is not None:
@@ -239,6 +254,7 @@ def main():
                             if np.sqrt(((center[0] - center2[0])**2) + ((center[1] - center2[1])**2)) < max(e2[1][0], e2[1][1]):
                                 size2 = e2[1][0] * e2[1][1]
                                 if size2 > size:
+                                    pass
                                     ellipses[i] = None
 
             color = (0, 255, 0)
@@ -249,7 +265,7 @@ def main():
                     # contour
                     # cv.drawContours(drawing, contours, i, color)
                     # ellipse
-                    cv.ellipse(clone, ellipse, MarkerColors.get_from_pixel_debug(image[int(ellipse[0][1])][int(ellipse[0][0])]), 3)
+                    cv.ellipse(clone, ellipse, MarkerColors.get_from_pixel_debug(image, int(ellipse[0][0]), int(ellipse[0][1])), 3)
                     # rotated rectangle
                     # box = cv.boxPoints(rects[i])
                     # box = np.intp(box)  # np.intp: Integer used for indexing (same as C ssize_t; normally either int32 or int64)
@@ -259,8 +275,8 @@ def main():
                 gg = ransac(centers)
                 # cv.ellipse(clone, cv.fitEllipse(np.array(centers)), (255, 0, 0), 2)
                 if gg is not None:
-                    cv.ellipse(clone, gg, (0, 255, 255), 2)
-                    jk = ransac2(image, gg[0], centers)
+                    # cv.ellipse(clone, gg, (0, 255, 255), 2)
+                    jk = marker_positioning(image, gg[0], centers)
                     if jk is not None:
                         zero, x_axis, y_axis, z_axis = jk
                         cv.line(clone, zero, x_axis, (0, 0, 0), 2)
