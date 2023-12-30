@@ -5,8 +5,8 @@ import shutil
 import os
 
 CHECKERBOARD = (9, 6)
-NUM_OF_FRAMES = 20
-DEBUG = True
+NUM_OF_FRAMES = 250
+DEBUG = False
 
 
 def clear_debug_folder():
@@ -41,12 +41,6 @@ def main():
         success, image = video.read()
         if success:
             images.append(image)
-
-    # for i in range(video_length):
-    #     success, image = video.read()  # TODO this is slow search for a skip(n) func
-    #     if (i % step) == 0:
-    #         # Take this frame
-    #         images.append(image)
 
     # Loop and search for the chessboard in the selected frames
     print('Read %d frames' % len(images))
@@ -90,11 +84,9 @@ def main():
 
         # Displaying result
         print("Camera matrix:", matrix)
-
         print("\nDistortion coefficient:", distortion)
-
-        print("\nRotation Vectors:", r_vecs)
-        print("\nTranslation Vectors: ", t_vecs)
+        # print("\nRotation Vectors:", r_vecs)
+        # print("\nTranslation Vectors: ", t_vecs)
 
         print("RMS: ", ret)
     else:

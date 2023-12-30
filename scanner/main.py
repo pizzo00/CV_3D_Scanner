@@ -7,7 +7,7 @@ import numpy as np
 import cv2 as cv
 import imutils
 
-from geometry import Rectangle
+from geometry import Rectangle, Ellipse
 from undistorion import undistort_image, get_new_camera_matrix, get_distortion, get_h_w
 
 
@@ -15,36 +15,29 @@ def nothing(x):
     pass
 
 
-def get_angle(center: Tuple[float, float], point: Tuple[float, float]):
-    x = point[0] - center[0]
-    y = point[1] - center[1]
-    _, angle = polar_utility.cartesian_to_polar(x, y)
-    return angle
-
-
-def marker_positioning(image, center: Tuple[float, float], centers: List[List[int]]):
+def marker_positioning(image, center: Tuple[float, float], centers: List[List[float]]):
     circular_marker = CircularMarker()
     export = image.copy()
 
     img_points = []
     dst_points = []
     marker_idx_img_points = [[] for _ in circular_marker.points]
-    centers = sorted(centers, reverse=True, key=lambda x: get_angle(center, x))
+    centers = sorted(centers, reverse=True, key=lambda x: polar_utility.get_angle(center, x))
 
     i = 0
     while i < len(centers):
-        export = cv.putText(export, str(i), centers[i], cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        export = cv.putText(export, str(i), [int(centers[i][0]), int(centers[i][1])], cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
         img_points_temp = [
-                centers[i],
-                centers[(i + 1) % len(centers)],
-                centers[(i + 2) % len(centers)],
-                centers[(i + 3) % len(centers)],
-             ]
+            centers[i],
+            centers[(i + 1) % len(centers)],
+            centers[(i + 2) % len(centers)],
+            centers[(i + 3) % len(centers)],
+        ]
 
         colors = []
         for m in img_points_temp:
-            colors.append(MarkerColors.get_from_pixel(image, m[0], m[1]))
+            colors.append(MarkerColors.get_from_pixel(image, int(m[0]), int(m[1])))
 
         # for m in markers:
         #     cv.line(export, (0, 0), m, MarkerColors.get_from_pixel_debug(image, m[0], m[1]), 2)
@@ -73,38 +66,38 @@ def marker_positioning(image, center: Tuple[float, float], centers: List[List[in
                 img_points.append(centers[most_frequent])
                 # export = cv.putText(export, str(i), centers[most_frequent], cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-    export = imutils.resize(export, height=600)
-    cv.imshow("Img_3", export)
+    # export = imutils.resize(export, height=600)
+    # cv.imshow("Img_3", export)
 
-    if len(img_points) > 4:
-        #   ---------------- find homograpy
-        M, mask = cv.findHomography(np.array(img_points).astype('float32'), np.array([[m[0]+300, m[1]+300] for m in dst_points]))
+    if len(img_points) > 4:  # TODO pensare di aumentare per precisione
+        # Find homograpy
+        M, mask = cv.findHomography(np.array(img_points), np.array([[m[0] + 300, m[1] + 300] for m in dst_points]))
         img_out = cv.warpPerspective(image, M, (600, 600))
 
         img_out = imutils.resize(img_out, height=600)
         # cv.imshow("Img_3", img_out)
 
-        # new_camera_matrix = get_new_camera_matrix()
-        # distortion = np.zeros((4, 1))  # success get_distortion()
-        # success, rotation_vector, translation_vector = cv.solvePnP(np.array(dst_points), np.array(img_points).astype('float32'), new_camera_matrix, distortion, flags=cv.SOLVEPNP_IPPE)
-        #
-        # # test_point, _ = cv.projectPoints(np.array(circular_marker.get_marker_point(marker_idx-1)), rotation_vector, translation_vector, new_camera_matrix, distortion)
-        # # test_point_x = int(test_point[0][0][0])
-        # # test_point_y = int(test_point[0][0][1])
-        # # zero_point, _ = cv.projectPoints(np.array([0.0, 0.0, 0.0]), rotation_vector, translation_vector, new_camera_matrix, distortion)
-        # # zero_point_x = int(zero_point[0][0][0])
-        # # zero_point_y = int(zero_point[0][0][1])
-        # # cv.line(export, (0, 0), (zero_point_x, zero_point_y), (0, 0, 0), 4)
-        # # cv.imwrite(".\\data\\debug\\image.jpg", export)
-        #
-        # # if 0 <= test_point_x < w and 0 <= test_point_y < h and \
-        # #    MarkerColors.get_from_pixel(image[test_point_y][test_point_x]) == circular_marker.get_marker_color(marker_idx-1):
-        # zero, jacobian = cv.projectPoints(np.array([(0.0, 0.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
-        # x_axis, jacobian = cv.projectPoints(np.array([(1000.0, 0.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
-        # y_axis, _ = cv.projectPoints(np.array([(0.0, 1000.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
-        # z_axis, _ = cv.projectPoints(np.array([(0.0, 0.0, 1000.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
-        #
-        # return zero[0][0].astype('int'), x_axis[0][0].astype('int'), y_axis[0][0].astype('int'), z_axis[0][0].astype('int')
+        new_camera_matrix = get_new_camera_matrix()
+        distortion = np.zeros((4, 1))  # success get_distortion()
+        success, rotation_vector, translation_vector = cv.solvePnP(np.array(dst_points), np.array(img_points), new_camera_matrix, distortion, flags=cv.SOLVEPNP_IPPE)
+
+        # test_point, _ = cv.projectPoints(np.array(circular_marker.get_marker_point(marker_idx-1)), rotation_vector, translation_vector, new_camera_matrix, distortion)
+        # test_point_x = int(test_point[0][0][0])
+        # test_point_y = int(test_point[0][0][1])
+        # zero_point, _ = cv.projectPoints(np.array([0.0, 0.0, 0.0]), rotation_vector, translation_vector, new_camera_matrix, distortion)
+        # zero_point_x = int(zero_point[0][0][0])
+        # zero_point_y = int(zero_point[0][0][1])
+        # cv.line(export, (0, 0), (zero_point_x, zero_point_y), (0, 0, 0), 4)
+        # cv.imwrite(".\\data\\debug\\image.jpg", export)
+
+        # if 0 <= test_point_x < w and 0 <= test_point_y < h and \
+        #    MarkerColors.get_from_pixel(image[test_point_y][test_point_x]) == circular_marker.get_marker_color(marker_idx-1):
+        zero, jacobian = cv.projectPoints(np.array([(0.0, 0.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
+        x_axis, jacobian = cv.projectPoints(np.array([(100.0, 0.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
+        y_axis, _ = cv.projectPoints(np.array([(0.0, 100.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
+        z_axis, _ = cv.projectPoints(np.array([(0.0, 0.0, 100.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
+
+        return zero[0][0].astype('int'), x_axis[0][0].astype('int'), y_axis[0][0].astype('int'), z_axis[0][0].astype('int')
 
     return None
     # rotation_vector = cv.Rodrigues(rotation_vector)
@@ -119,13 +112,13 @@ def ransac(centers: List[List[float]]):
 
     n = max(n, 5)
 
-    best_model = None
+    best_model: Ellipse | None = None
     best_consensus_set = None
     best_error = 0
     for iteration in range(k):
         possible_inliers_idx = set(random.sample([i for i in range(len(centers))], n))
         possible_inliers = [centers[i] for i in possible_inliers_idx]
-        possible_model = cv.fitEllipse(np.array(possible_inliers))
+        possible_model = Ellipse(cv.fitEllipse(np.array(possible_inliers)))
         consensus_set_idx = possible_inliers_idx
 
         for i, c in enumerate(centers):
@@ -136,7 +129,7 @@ def ransac(centers: List[List[float]]):
 
         if len(consensus_set_idx) >= d:
             enhanced_possible_inliers = [centers[i] for i in consensus_set_idx]
-            enhanced_model = cv.fitEllipse(np.array(enhanced_possible_inliers))
+            enhanced_model = Ellipse(cv.fitEllipse(np.array(enhanced_possible_inliers)))
             mean_error = 0
             # max_error = 0
             for i, c in enumerate(centers):
@@ -151,6 +144,159 @@ def ransac(centers: List[List[float]]):
                 best_error = mean_error
 
     return best_model
+
+
+def threshold(image, debug_img):
+    gray_img = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+
+    threshold = cv.getTrackbarPos('threshold', 'Parameters')
+    sigma = cv.getTrackbarPos('sigma', 'Parameters')
+    a_canny = cv.getTrackbarPos('a_canny', 'Parameters')
+    b_canny = cv.getTrackbarPos('b_canny', 'Parameters')
+    ret, thresh_img = cv.threshold(gray_img, threshold, 255, 0)
+
+    # Blur an image
+    bilateral_filtered_image = cv.bilateralFilter(thresh_img, 5, sigma, sigma)
+    # Detect edges
+    edge_img = cv.Canny(bilateral_filtered_image, a_canny, b_canny)
+
+    return edge_img, debug_img
+
+
+MORPH_SIZE = 2
+
+
+def detect_wall(edge_img, debug_img) -> Tuple[Rectangle, cv.typing.MatLike]:
+    kernel_rect = cv.getStructuringElement(cv.MORPH_RECT, (2 * MORPH_SIZE + 1, 2 * MORPH_SIZE + 1), (MORPH_SIZE, MORPH_SIZE))
+    edge_img_rect = cv.morphologyEx(edge_img, cv.MORPH_CLOSE, kernel_rect, iterations=4)
+
+    # Find contours
+    contours, hierarchy = cv.findContours(edge_img_rect, cv.RETR_TREE, cv.CHAIN_APPROX_NONE)
+
+    # Find the max rectangle without child
+    wall_rect: Rectangle | None = None
+    for i, c in enumerate(contours):
+        points = cv.approxPolyDP(c, 0.01 * cv.arcLength(c, True), True)
+        first_child = hierarchy[0][i][2]
+        if len(points) == 4 and first_child == -1:
+            rect = Rectangle(cv.boundingRect(c), points)
+            if wall_rect is None or rect.area > wall_rect.area:
+                wall_rect = rect
+
+    # Debug print rectangle
+    for p in range(len(wall_rect.points)):
+        debug_img = cv.line(debug_img, wall_rect.points[p][0], wall_rect.points[(p + 1) % len(wall_rect.points)][0], (0, 0, 255), 2)
+
+    return wall_rect, debug_img
+
+
+def detect_ellipses(edge_img, image, debug_img) -> Tuple[List[Ellipse | None], cv.typing.MatLike]:
+    ellipses_precision = cv.getTrackbarPos('ellipses_precision', 'Parameters')
+    ellipses_min_points = cv.getTrackbarPos('ellipses_min_points', 'Parameters')
+    ellipses_max_points = cv.getTrackbarPos('ellipses_max_points', 'Parameters')
+    ellipses_ratio = cv.getTrackbarPos('ellipses_ratio', 'Parameters')
+
+    kernel_el = cv.getStructuringElement(cv.MORPH_ELLIPSE, (2 * MORPH_SIZE + 1, 2 * MORPH_SIZE + 1), (MORPH_SIZE, MORPH_SIZE))
+    edge_img_el = cv.morphologyEx(edge_img, cv.MORPH_CLOSE, kernel_el, iterations=4)
+
+    # Find contours
+    contours, hierarchy = cv.findContours(edge_img_el, cv.RETR_TREE, cv.CHAIN_APPROX_NONE)
+
+    # Find the ellipses for each contour
+    ellipses: List[Ellipse | None] = [None] * len(contours)
+    for i, c in enumerate(contours):
+        if ellipses_min_points < c.shape[0] < ellipses_max_points:
+            # rects[i] = cv.minAreaRect(c)
+            ellipses[i] = Ellipse(cv.fitEllipse(c))
+
+    # Filter wrong ellipses
+    for i, e in enumerate(ellipses):
+        if e is not None:
+            if e.max_size > e.min_size * (ellipses_ratio / 100):
+                ellipses[i] = None
+            else:
+                # Calculate a shape error estimation
+                mean_err = 0
+                for p in contours[i]:
+                    err = point2ellipse.point_ellipse_distance(e, (p[0][0], p[0][1]))
+                    mean_err += err / len(contours[i])
+                if mean_err > ellipses_precision:
+                    ellipses[i] = None
+
+    # Filter ellipses too near
+    for i, e in enumerate(ellipses):
+        if e is not None:
+            center = e.center
+            size = e.x_size * e.y_size
+
+            for i2, e2 in enumerate(ellipses):
+                if e2 is not None and i != i2:
+                    center2 = e2.center
+                    if np.sqrt(((center.x - center2.x) ** 2) + ((center.y - center2.y) ** 2)) < e2.max_size:
+                        size2 = e2.x_size * e2.y_size
+                        if size2 > size:
+                            ellipses[i] = None
+
+    # Remove Nones from ellipses
+    ellipses = [e for e in ellipses if e is not None]
+
+    # Debug print
+    for ellipse in ellipses:
+        cv.ellipse(debug_img, ellipse.raw, MarkerColors.get_from_pixel_debug(image, int(ellipse.center.x), int(ellipse.center.y)), 3)
+
+    return ellipses, debug_img
+
+
+def detect_wall_line(image, wall_rect: Rectangle, debug_img):
+    h = 230
+    w = 130
+    h_dec = 230.0
+    w_dec = 130.0
+    margin = 5  # Prevent black pixel
+
+    points_y_sorted = sorted(wall_rect.points, key=lambda x: x[0][1])
+    top_points = sorted(points_y_sorted[:2], key=lambda x: x[0][0])
+    bottom_points = sorted(points_y_sorted[2:], key=lambda x: x[0][0])
+
+    # points ordered [TopLeft, TopRight, BottLeft, BottRight]
+    img_points = top_points + bottom_points
+    # world zero on top left
+    dst_points = [
+        [0.0, 0.0, 0.0],
+        [w_dec, 0.0, 0.0],
+        [0.0, h_dec, 0.0],
+        [w_dec, h_dec, 0.0],
+    ]
+
+    M, mask = cv.findHomography(np.array(img_points), np.array(dst_points))
+    homo_img = cv.warpPerspective(image, M, (w, h))
+
+    #edge_img, _ = threshold(homo_img, debug_img)
+
+    lower_red = np.array([170, 170, 205], dtype="uint8")
+    upper_red = np.array([255, 255, 255], dtype="uint8")
+    mask = cv.inRange(homo_img, lower_red, upper_red)
+
+    points_of_line = []
+    for x in range(w):
+        if margin < x < w - margin:
+            for y in range(h):
+                if margin < y < h - margin:
+                    if mask[y][x] == 255:
+                        points_of_line.append([[x, y]])
+    # edge_img = cv.bitwise_and(homo_img, homo_img, mask=mask)
+
+    line = cv.fitLine(np.array(points_of_line), cv.DIST_L2, 0, 0.01, 0.01)
+    vx = line[0][0]
+    vy = line[1][0]
+    x0 = line[2][0]
+    y0 = line[3][0]
+    m = 200
+    cv.line(homo_img, np.array([int(x0 - m * vx), int(y0 - m * vy)]), np.array([int(x0 + m * vx), int(y0 + m * vy)]), (255, 255, 0))
+
+    homo_img = imutils.resize(homo_img, height=600)
+    cv.imshow("Img_3", homo_img)
+    pass
 
 
 def main():
@@ -173,7 +319,7 @@ def main():
     cv.createTrackbar('t', 'Ransac', 25, 40, nothing)
     cv.createTrackbar('d', 'Ransac', 7, 30, nothing)
 
-    video = cv.VideoCapture('.\\data\\ball.mov')
+    video = cv.VideoCapture('.\\data\\cat.mov')
 
     # Loop the frames in the video and take NUM_OF_FRAMES equally spaced frames
     video_length = int(video.get(cv.CAP_PROP_FRAME_COUNT))
@@ -181,114 +327,36 @@ def main():
         success, image = video.read()
         if success:
             image = undistort_image(image)
-            clone = image.copy()
-            gray_img = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+            debug_img = image.copy()
 
-            threshold = cv.getTrackbarPos('threshold', 'Parameters')
-            ellipses_precision = cv.getTrackbarPos('ellipses_precision', 'Parameters')
-            ellipses_min_points = cv.getTrackbarPos('ellipses_min_points', 'Parameters')
-            ellipses_max_points = cv.getTrackbarPos('ellipses_max_points', 'Parameters')
-            ellipses_ratio = cv.getTrackbarPos('ellipses_ratio', 'Parameters')
-            sigma = cv.getTrackbarPos('sigma', 'Parameters')
-            a_canny = cv.getTrackbarPos('a_canny', 'Parameters')
-            b_canny = cv.getTrackbarPos('b_canny', 'Parameters')
+            edge_img, debug_img = threshold(image, debug_img)
+            wall_rect, debug_img = detect_wall(edge_img, debug_img)
+            ellipses, debug_img = detect_ellipses(edge_img, image, debug_img)
+            detect_wall_line(image, wall_rect, debug_img)
 
-            ret, thresh_img = cv.threshold(gray_img, threshold, 255, 0)
-
-            # Blur an image
-            bilateral_filtered_image = cv.bilateralFilter(thresh_img, 5, sigma, sigma)
-
-            morph_size = 2
-            kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (2 * morph_size + 1, 2 * morph_size + 1), (morph_size, morph_size))
-
-            # Detect edges
-            edge_detected_image = cv.Canny(bilateral_filtered_image, a_canny, b_canny)
-
-            edge_detected_image = cv.morphologyEx(edge_detected_image, cv.MORPH_CLOSE, kernel, iterations=4)
-
-            # Find contours
-            contours, hierarchy = cv.findContours(edge_detected_image, cv.RETR_TREE, cv.CHAIN_APPROX_NONE)
-
-            # Find the rotated rectangles and ellipses for each contour
-            rects: List[Rectangle] = []
-            ellipses: List[cv.typing.RotatedRect | None] = [None] * len(contours)
-
-            for i, c in enumerate(contours):
-                # x1, y1 = c[0][0]
-                points = cv.approxPolyDP(c, 0.01*cv.arcLength(c, True), True)
-                first_child = hierarchy[0][i][2]
-                if len(points) == 4 and first_child == -1:
-                    rects.append(Rectangle(cv.boundingRect(c), points))
-
-                if ellipses_min_points < c.shape[0] < ellipses_max_points:
-                    # rects[i] = cv.minAreaRect(c)
-                    ellipses[i] = cv.fitEllipse(c)
-
-            wall_rect = max(rects, key=lambda x: x.area)
-            for p in range(len(wall_rect.points)):
-                clone = cv.line(clone, wall_rect.points[p][0], wall_rect.points[(p + 1) % len(wall_rect.points)][0], (0, 0, 255), 2)
-
-            for i, c in enumerate(contours):
-                if ellipses[i] is not None:
-                    max_size = max(ellipses[i][1][0], ellipses[i][1][1])
-                    min_size = min(ellipses[i][1][0], ellipses[i][1][1])
-                    if max_size > min_size * (ellipses_ratio / 100):
-                        ellipses[i] = None
-                    else:
-                        mean_err = 0
-                        max_err = 0
-                        for p in c:
-                            err = point2ellipse.point_ellipse_distance(ellipses[i], (p[0][0], p[0][1]))
-                            mean_err += err / len(c)
-                        if mean_err > ellipses_precision:
-                            ellipses[i] = None
-
-            for i, e in enumerate(ellipses):
-                if e is not None:
-                    center = e[0]
-                    size = e[1][0] * e[1][1]
-
-                    for i2, e2 in enumerate(ellipses):
-                        if e2 is not None and i != i2:
-                            center2 = e2[0]
-                            if np.sqrt(((center[0] - center2[0])**2) + ((center[1] - center2[1])**2)) < max(e2[1][0], e2[1][1]):
-                                size2 = e2[1][0] * e2[1][1]
-                                if size2 > size:
-                                    pass
-                                    ellipses[i] = None
-
-            color = (0, 255, 0)
-            centers = []
+            ellipses_centers = []
+            ellipses_centers_int = []
             for ellipse in ellipses:
-                if ellipse is not None:
-                    centers.append([int(ellipse[0][0]), int(ellipse[0][1])])
-                    # contour
-                    # cv.drawContours(drawing, contours, i, color)
-                    # ellipse
-                    cv.ellipse(clone, ellipse, MarkerColors.get_from_pixel_debug(image, int(ellipse[0][0]), int(ellipse[0][1])), 3)
-                    # rotated rectangle
-                    # box = cv.boxPoints(rects[i])
-                    # box = np.intp(box)  # np.intp: Integer used for indexing (same as C ssize_t; normally either int32 or int64)
-                    # cv.drawContours(drawing, [box], 0, color)
+                ellipses_centers.append([ellipse.center.x, ellipse.center.y])
+                ellipses_centers_int.append([int(ellipse.center.x), int(ellipse.center.y)])
 
-            if len(centers) > 5:
-                gg = ransac(centers)
-                # cv.ellipse(clone, cv.fitEllipse(np.array(centers)), (255, 0, 0), 2)
+            if len(ellipses_centers) > 5:
+                gg = ransac(ellipses_centers_int)
+                # cv.ellipse(debug_img, cv.fitEllipse(np.array(centers)), (255, 0, 0), 2)
                 if gg is not None:
-                    # cv.ellipse(clone, gg, (0, 255, 255), 2)
-                    jk = marker_positioning(image, gg[0], centers)
+                    # cv.ellipse(debug_img, gg, (0, 255, 255), 2)
+                    jk = marker_positioning(image, gg.center.raw, ellipses_centers)
                     if jk is not None:
                         zero, x_axis, y_axis, z_axis = jk
-                        cv.line(clone, zero, x_axis, (0, 0, 0), 2)
-                        cv.line(clone, zero, y_axis, (0, 0, 0), 2)
-                        cv.line(clone, zero, z_axis, (0, 0, 0), 2)
+                        cv.line(debug_img, zero, x_axis, (255, 0, 0), 2)
+                        cv.line(debug_img, zero, y_axis, (0, 255, 0), 2)
+                        cv.line(debug_img, zero, z_axis, (0, 0, 255), 2)
 
-            # cv.imwrite(".\\data\\debug\\image.jpg", clone)
-            clone = imutils.resize(clone, height=600)
-            thresh_img = imutils.resize(thresh_img, height=600)
-            edge_detected_image = imutils.resize(edge_detected_image, height=600)
-            cv.imshow("Img_1", clone)
-            cv.imshow("Img_2", edge_detected_image)
+            # cv.imwrite(".\\data\\debug\\image.jpg", debug_img)
+            debug_img = imutils.resize(debug_img, height=600)
+            edge_img = imutils.resize(edge_img, height=600)
+            cv.imshow("Img_1", debug_img)
+            cv.imshow("Img_2", edge_img)
 
             # ESC to break
             k = cv.waitKey(1) & 0xFF
@@ -297,12 +365,6 @@ def main():
 
 
 if __name__ == '__main__':
-    circular_marker = CircularMarker()
-
-    a = circular_marker.get_markers_position([MarkerColors.Black, MarkerColors.Magenta, MarkerColors.Magenta, MarkerColors.Cyan])
-    b = circular_marker.get_markers_position([MarkerColors.Cyan, MarkerColors.Yellow, MarkerColors.White, MarkerColors.Magenta])
-    c = circular_marker.get_markers_position([MarkerColors.Cyan, MarkerColors.Magenta, MarkerColors.Magenta, MarkerColors.Magenta])
-
     main()
     cv.destroyAllWindows()
     pass
