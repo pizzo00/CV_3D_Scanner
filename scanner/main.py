@@ -15,7 +15,19 @@ def nothing(x):
     pass
 
 
-def marker_positioning(image, center: Tuple[float, float], centers: List[List[float]]):
+def invert_pose(r, t):
+    #np_rodrigues = np.asarray(r[:, :], np.float64)
+    rmat = cv.Rodrigues(r)[0]
+    return np.matrix(rmat).T, (-np.matrix(rmat).T) @ np.matrix(t)
+
+
+def get_info_solvepnp():
+    new_camera_matrix = get_new_camera_matrix()
+    distortion = np.zeros((4, 1))  # success get_distortion()
+    return new_camera_matrix, distortion
+
+
+def marker_positioning(image, center: Tuple[float, float], centers: List[List[float]], debug_img):
     circular_marker = CircularMarker()
     export = image.copy()
 
@@ -77,10 +89,12 @@ def marker_positioning(image, center: Tuple[float, float], centers: List[List[fl
         img_out = imutils.resize(img_out, height=600)
         # cv.imshow("Img_3", img_out)
 
-        new_camera_matrix = get_new_camera_matrix()
-        distortion = np.zeros((4, 1))  # success get_distortion()
+        new_camera_matrix, distortion = get_info_solvepnp()
         success, rotation_vector, translation_vector = cv.solvePnP(np.array(dst_points), np.array(img_points), new_camera_matrix, distortion, flags=cv.SOLVEPNP_IPPE)
+        ri, ti = invert_pose(rotation_vector, translation_vector)
 
+        if not success:
+            return None, None, debug_img
         # test_point, _ = cv.projectPoints(np.array(circular_marker.get_marker_point(marker_idx-1)), rotation_vector, translation_vector, new_camera_matrix, distortion)
         # test_point_x = int(test_point[0][0][0])
         # test_point_y = int(test_point[0][0][1])
@@ -96,10 +110,16 @@ def marker_positioning(image, center: Tuple[float, float], centers: List[List[fl
         x_axis, jacobian = cv.projectPoints(np.array([(100.0, 0.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
         y_axis, _ = cv.projectPoints(np.array([(0.0, 100.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
         z_axis, _ = cv.projectPoints(np.array([(0.0, 0.0, 100.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
+        pose, _ = cv.projectPoints(np.array([ti.item(0), ti.item(1), ti.item(2)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
 
-        return zero[0][0].astype('int'), x_axis[0][0].astype('int'), y_axis[0][0].astype('int'), z_axis[0][0].astype('int')
+        cv.line(debug_img, zero[0][0].astype('int'), x_axis[0][0].astype('int'), (255, 0, 0), 2)
+        cv.line(debug_img, zero[0][0].astype('int'), y_axis[0][0].astype('int'), (0, 255, 0), 2)
+        cv.line(debug_img, zero[0][0].astype('int'), z_axis[0][0].astype('int'), (0, 0, 255), 2)
+        cv.line(debug_img, zero[0][0].astype('int'), pose[0][0].astype('int'), (0, 0, 255), 10)
 
-    return None
+        return rotation_vector, translation_vector, debug_img
+
+    return None, None, debug_img
     # rotation_vector = cv.Rodrigues(rotation_vector)
     # translation_vector = cv.Rodrigues(translation_vector)
 
@@ -117,7 +137,7 @@ def ransac(centers: List[List[float]]):
     best_error = 0
     for iteration in range(k):
         possible_inliers_idx = set(random.sample([i for i in range(len(centers))], n))
-        possible_inliers = [centers[i] for i in possible_inliers_idx]
+        possible_inliers = [[int(centers[i][0]), int(centers[i][1])] for i in possible_inliers_idx]
         possible_model = Ellipse(cv.fitEllipse(np.array(possible_inliers)))
         consensus_set_idx = possible_inliers_idx
 
@@ -128,7 +148,7 @@ def ransac(centers: List[List[float]]):
                     consensus_set_idx.add(i)
 
         if len(consensus_set_idx) >= d:
-            enhanced_possible_inliers = [centers[i] for i in consensus_set_idx]
+            enhanced_possible_inliers = [[int(centers[i][0]), int(centers[i][1])] for i in consensus_set_idx]
             enhanced_model = Ellipse(cv.fitEllipse(np.array(enhanced_possible_inliers)))
             mean_error = 0
             # max_error = 0
@@ -254,9 +274,10 @@ def detect_wall_line(image, wall_rect: Rectangle, debug_img):
     w_dec = 130.0
     margin = 5  # Prevent black pixel
 
-    points_y_sorted = sorted(wall_rect.points, key=lambda x: x[0][1])
-    top_points = sorted(points_y_sorted[:2], key=lambda x: x[0][0])
-    bottom_points = sorted(points_y_sorted[2:], key=lambda x: x[0][0])
+    unpacked_points = [i[0] * 1.0 for i in wall_rect.points]
+    points_y_sorted = sorted(unpacked_points, key=lambda x: x[1])
+    top_points = sorted(points_y_sorted[:2], key=lambda x: x[0])
+    bottom_points = sorted(points_y_sorted[2:], key=lambda x: x[0])
 
     # points ordered [TopLeft, TopRight, BottLeft, BottRight]
     img_points = top_points + bottom_points
@@ -271,11 +292,10 @@ def detect_wall_line(image, wall_rect: Rectangle, debug_img):
     M, mask = cv.findHomography(np.array(img_points), np.array(dst_points))
     homo_img = cv.warpPerspective(image, M, (w, h))
 
-    #edge_img, _ = threshold(homo_img, debug_img)
-
     lower_red = np.array([170, 170, 205], dtype="uint8")
     upper_red = np.array([255, 255, 255], dtype="uint8")
     mask = cv.inRange(homo_img, lower_red, upper_red)
+    edge_img = cv.bitwise_and(homo_img, homo_img, mask=mask)
 
     points_of_line = []
     for x in range(w):
@@ -284,8 +304,9 @@ def detect_wall_line(image, wall_rect: Rectangle, debug_img):
                 if margin < y < h - margin:
                     if mask[y][x] == 255:
                         points_of_line.append([[x, y]])
-    # edge_img = cv.bitwise_and(homo_img, homo_img, mask=mask)
 
+    if len(points_of_line) < 5:
+        return None, None, debug_img
     line = cv.fitLine(np.array(points_of_line), cv.DIST_L2, 0, 0.01, 0.01)
     vx = line[0][0]
     vy = line[1][0]
@@ -296,7 +317,26 @@ def detect_wall_line(image, wall_rect: Rectangle, debug_img):
 
     homo_img = imutils.resize(homo_img, height=600)
     cv.imshow("Img_3", homo_img)
-    pass
+
+    new_camera_matrix, distortion = get_info_solvepnp()
+    success, rotation_vector, translation_vector = cv.solvePnP(np.array(dst_points), np.array(img_points), new_camera_matrix, distortion, flags=cv.SOLVEPNP_IPPE)
+    ri, ti = invert_pose(rotation_vector, translation_vector)
+
+    if not success:
+        return None, None, debug_img
+
+    zero, jacobian = cv.projectPoints(np.array([(0.0, 0.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
+    x_axis, jacobian = cv.projectPoints(np.array([(100.0, 0.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
+    y_axis, _ = cv.projectPoints(np.array([(0.0, 100.0, 0.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
+    z_axis, _ = cv.projectPoints(np.array([(0.0, 0.0, 100.0)]), rotation_vector, translation_vector, new_camera_matrix, distortion)
+    pose, _ = cv.projectPoints(ti, rotation_vector, translation_vector, new_camera_matrix, distortion)
+
+    cv.line(debug_img, zero[0][0].astype('int'), x_axis[0][0].astype('int'), (255, 0, 0), 2)
+    cv.line(debug_img, zero[0][0].astype('int'), y_axis[0][0].astype('int'), (0, 255, 0), 2)
+    cv.line(debug_img, zero[0][0].astype('int'), z_axis[0][0].astype('int'), (0, 0, 255), 2)
+    cv.line(debug_img, zero[0][0].astype('int'), pose[0][0].astype('int'), (0, 0, 255), 10)
+
+    return rotation_vector, translation_vector, debug_img
 
 
 def main():
@@ -316,10 +356,10 @@ def main():
     cv.namedWindow("Ransac")
     cv.createTrackbar('n', 'Ransac', 5, 30, nothing)
     cv.createTrackbar('k', 'Ransac', 400, 5000, nothing)
-    cv.createTrackbar('t', 'Ransac', 25, 40, nothing)
+    cv.createTrackbar('t', 'Ransac', 25, 400, nothing)
     cv.createTrackbar('d', 'Ransac', 7, 30, nothing)
 
-    video = cv.VideoCapture('.\\data\\cat.mov')
+    video = cv.VideoCapture('.\\data\\cube.mov')
 
     # Loop the frames in the video and take NUM_OF_FRAMES equally spaced frames
     video_length = int(video.get(cv.CAP_PROP_FRAME_COUNT))
@@ -332,7 +372,12 @@ def main():
             edge_img, debug_img = threshold(image, debug_img)
             wall_rect, debug_img = detect_wall(edge_img, debug_img)
             ellipses, debug_img = detect_ellipses(edge_img, image, debug_img)
-            detect_wall_line(image, wall_rect, debug_img)
+            wall_r, wall_t, debug_img = detect_wall_line(image, wall_rect, debug_img)
+            if wall_t is not None:
+                wall_ri, wall_ti = invert_pose(wall_r, wall_t)
+                distance_from_wall = np.sqrt(wall_ti.item(0) ** 2 + wall_ti.item(1) ** 2 + wall_ti.item(2) ** 2)
+                debug_img = cv.putText(debug_img, str(int(distance_from_wall)), [50, 50], cv.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
+
 
             ellipses_centers = []
             ellipses_centers_int = []
@@ -341,16 +386,12 @@ def main():
                 ellipses_centers_int.append([int(ellipse.center.x), int(ellipse.center.y)])
 
             if len(ellipses_centers) > 5:
-                gg = ransac(ellipses_centers_int)
-                # cv.ellipse(debug_img, cv.fitEllipse(np.array(centers)), (255, 0, 0), 2)
-                if gg is not None:
+                # An ellipse to rule them all
+                ellipse_master = ransac(ellipses_centers)
+                cv.ellipse(debug_img, cv.fitEllipse(np.array(ellipses_centers_int)), (255, 0, 0), 2)
+                if ellipse_master is not None:
                     # cv.ellipse(debug_img, gg, (0, 255, 255), 2)
-                    jk = marker_positioning(image, gg.center.raw, ellipses_centers)
-                    if jk is not None:
-                        zero, x_axis, y_axis, z_axis = jk
-                        cv.line(debug_img, zero, x_axis, (255, 0, 0), 2)
-                        cv.line(debug_img, zero, y_axis, (0, 255, 0), 2)
-                        cv.line(debug_img, zero, z_axis, (0, 0, 255), 2)
+                    plate_r, plate_t, debug_img = marker_positioning(image, ellipse_master.center.raw, ellipses_centers, debug_img)
 
             # cv.imwrite(".\\data\\debug\\image.jpg", debug_img)
             debug_img = imutils.resize(debug_img, height=600)
