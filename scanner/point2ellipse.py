@@ -8,7 +8,7 @@ from typing import Tuple
 import cv2 as cv
 import numpy as np
 from numpy import sqrt
-import polar_utility
+import geometric_utility
 from geometry import Ellipse
 
 
@@ -23,8 +23,8 @@ def point_ellipse_distance(ellipse: Ellipse, p: Tuple[float, float]) -> float:
     px = p[0] - cx
     py = p[1] - cy
 
-    radius, angle = polar_utility.cartesian_to_polar(px, py)
-    px, py = polar_utility.polar_to_cartesian(radius, angle + ellipse.angle)
+    radius, angle = geometric_utility.cartesian_to_polar(px, py)
+    px, py = geometric_utility.polar_to_cartesian(radius, angle + ellipse.angle)
 
     px2 = pow(px, 2)
     py2 = pow(py, 2)

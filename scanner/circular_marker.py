@@ -3,7 +3,7 @@ from typing import List, Any, Tuple
 
 import numpy as np
 
-from polar_utility import polar_to_cartesian
+import geometric_utility
 
 
 class MarkerColors(Enum):
@@ -96,7 +96,7 @@ class CircularMarker:
         self.points = np.zeros((self._number_of_markers, 3), np.float32)
         for i in range(self._number_of_markers):
             angle = i * self._angle_diff
-            x, y = polar_to_cartesian(self._radius, angle)
+            x, y = geometric_utility.polar_to_cartesian(self._radius, angle)
             self.points[i, 0] = x
             self.points[i, 1] = y
             # self.points[i, 2] = 0
@@ -126,3 +126,23 @@ class CircularMarker:
                search_colors[3].value == self.colors[(i+3) % self._number_of_markers]:
                 return i
         return None
+
+    @staticmethod
+    def get_laser_search_area(camera_x: float, camera_y: float):
+        intersection_x = camera_x
+        intersection_y = camera_y
+        radius, angle = geometric_utility.cartesian_to_polar(intersection_x, intersection_y)
+
+        search_angle = np.deg2rad(60)
+        angle1 = angle - search_angle/2
+        angle2 = angle + search_angle/2
+        radius1 = CircularMarker._radius * 22/40
+        radius2 = CircularMarker._radius * 32/40
+
+        p1 = geometric_utility.polar_to_cartesian(radius1, angle1)
+        p2 = geometric_utility.polar_to_cartesian(radius1, angle2)
+        p3 = geometric_utility.polar_to_cartesian(radius2, angle1)
+        p4 = geometric_utility.polar_to_cartesian(radius2, angle2)
+
+        # Add z = 0
+        return [[i[0], i[1], 0.0] for i in [p1, p2, p3, p4]]
