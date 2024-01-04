@@ -1,5 +1,10 @@
 import random
+import time
 from typing import List, Tuple
+
+import parameters
+from output import OutputXYZ
+from parameters import Parameters
 import point2ellipse
 import geometric_utility
 from circular_marker import CircularMarker, MarkerColors
@@ -13,17 +18,31 @@ from undistorion import undistort_image, get_new_camera_matrix, get_distortion, 
 from wall_marker import WallMarker
 
 
-def nothing(x):
-    pass
-
-
 def get_info_solvepnp():
     new_camera_matrix = get_new_camera_matrix()
     distortion = np.zeros((4, 1))  # get_distortion()
     return new_camera_matrix, distortion
 
 
-def back_projection_z(img_x, img_y, z: float, pose: Pose):
+def back_projection_plane(img_x: float, img_y: float, plane, pose: Pose):
+    new_camera_matrix, distortion = get_info_solvepnp()
+
+    point_undistorted = cv.undistortPoints(np.array([img_x, img_y]), new_camera_matrix, distortion)
+    x = point_undistorted[0][0][0]
+    y = point_undistorted[0][0][1]
+    z = 1
+    frame_point = np.matrix([x, y, z, 1]).T
+    frame_point = pose.mi @ frame_point
+    frame_point = np.array([
+        frame_point.item(0) / frame_point.item(3),
+        frame_point.item(1) / frame_point.item(3),
+        frame_point.item(2) / frame_point.item(3),
+    ])
+
+    world_point = geometric_utility.get_line_plane_intersection(np.array(pose.ti).flatten(), np.array(frame_point), plane)
+    return world_point
+
+def back_projection_z(img_x: float, img_y: float, z: float, pose: Pose):
     new_camera_matrix, distortion = get_info_solvepnp()
 
     point_undistorted = cv.undistortPoints(np.array([img_x, img_y]), new_camera_matrix, distortion)
@@ -47,7 +66,7 @@ def back_projection_z(img_x, img_y, z: float, pose: Pose):
     return world_point
 
 
-def back_projection_distance(img_x, img_y, distance: float, pose: Pose):
+def back_projection_distance(img_x: float, img_y: float, distance: float, pose: Pose):
     new_camera_matrix, distortion = get_info_solvepnp()
 
     point_undistorted = cv.undistortPoints(np.array([img_x, img_y]), new_camera_matrix, distortion)
@@ -69,7 +88,7 @@ def back_projection_distance(img_x, img_y, distance: float, pose: Pose):
     return world_point
 
 
-def detect_plate_pose(image, center: Tuple[float, float], centers: List[List[float]], debug_img) -> Pose:
+def detect_plate_pose(image, center: Tuple[float, float], centers: List[List[float]], debug_img) -> Pose | None:
     circular_marker = CircularMarker()
     export = image.copy()
 
@@ -145,35 +164,30 @@ def detect_plate_pose(image, center: Tuple[float, float], centers: List[List[flo
 
         # if 0 <= test_point_x < w and 0 <= test_point_y < h and \
         #    MarkerColors.get_from_pixel(image[test_point_y][test_point_x]) == circular_marker.get_marker_color(marker_idx-1):
-        zero, _ = cv.projectPoints(np.array([(0.0, 0.0, 0.0)]), r, t, new_camera_matrix, distortion)
-        x_axis, _ = cv.projectPoints(np.array([(100.0, 0.0, 0.0)]), r, t, new_camera_matrix, distortion)
-        y_axis, _ = cv.projectPoints(np.array([(0.0, 100.0, 0.0)]), r, t, new_camera_matrix, distortion)
-        z_axis, _ = cv.projectPoints(np.array([(0.0, 0.0, 100.0)]), r, t, new_camera_matrix, distortion)
-        pose_pnt, _ = cv.projectPoints(np.array([pose.ti.item(0), pose.ti.item(1), pose.ti.item(2)]), r, t, new_camera_matrix, distortion)
-        pose_prj, _ = cv.projectPoints(np.array([pose.ti.item(0), pose.ti.item(1), 0]), r, t, new_camera_matrix, distortion)
+        zero = cv.projectPoints(np.array([(0.0, 0.0, 0.0)]), r, t, new_camera_matrix, distortion)[0][0][0]
+        x_axis = cv.projectPoints(np.array([(100.0, 0.0, 0.0)]), r, t, new_camera_matrix, distortion)[0][0][0]
+        y_axis = cv.projectPoints(np.array([(0.0, 100.0, 0.0)]), r, t, new_camera_matrix, distortion)[0][0][0]
+        z_axis = cv.projectPoints(np.array([(0.0, 0.0, 100.0)]), r, t, new_camera_matrix, distortion)[0][0][0]
+        pose_pnt = cv.projectPoints(np.array([pose.ti.item(0), pose.ti.item(1), pose.ti.item(2)]), r, t, new_camera_matrix, distortion)[0][0][0]
+        pose_prj = cv.projectPoints(np.array([pose.ti.item(0), pose.ti.item(1), 0]), r, t, new_camera_matrix, distortion)[0][0][0]
 
-        cv.line(debug_img, zero[0][0].astype('int'), x_axis[0][0].astype('int'), (255, 0, 0), 2)
-        cv.line(debug_img, zero[0][0].astype('int'), y_axis[0][0].astype('int'), (0, 255, 0), 2)
-        cv.line(debug_img, zero[0][0].astype('int'), z_axis[0][0].astype('int'), (0, 0, 255), 2)
-        cv.line(debug_img, zero[0][0].astype('int'), pose_prj[0][0].astype('int'), (0, 255, 255), 2)
+        cv.line(debug_img, zero.astype('int'), x_axis.astype('int'), (255, 0, 0), 2)
+        cv.line(debug_img, zero.astype('int'), y_axis.astype('int'), (0, 255, 0), 2)
+        cv.line(debug_img, zero.astype('int'), z_axis.astype('int'), (0, 0, 255), 2)
+        cv.line(debug_img, zero.astype('int'), pose_prj.astype('int'), (0, 255, 255), 2)
 
         return pose
 
-    return None, None
+    return None
 
 
 def ransac(centers: List[List[float]]):
-    n = cv.getTrackbarPos('n', 'Ransac')
-    k = cv.getTrackbarPos('k', 'Ransac')
-    t = cv.getTrackbarPos('t', 'Ransac')
-    d = cv.getTrackbarPos('d', 'Ransac')
-
-    n = max(n, 5)
+    n = max(Parameters.ransac_n, 5)
 
     best_model: Ellipse | None = None
     best_consensus_set = None
     best_error = 0
-    for iteration in range(k):
+    for iteration in range(Parameters.ransac_k):
         possible_inliers_idx = set(random.sample([i for i in range(len(centers))], n))
         possible_inliers = [[int(centers[i][0]), int(centers[i][1])] for i in possible_inliers_idx]
         possible_model = Ellipse(cv.fitEllipse(np.array(possible_inliers)))
@@ -182,10 +196,10 @@ def ransac(centers: List[List[float]]):
         for i, c in enumerate(centers):
             if i not in possible_inliers_idx:
                 dist = point2ellipse.point_ellipse_distance(possible_model, (c[0], c[1]))
-                if dist < t:
+                if dist < Parameters.ransac_t:
                     consensus_set_idx.add(i)
 
-        if len(consensus_set_idx) >= d:
+        if len(consensus_set_idx) >= Parameters.ransac_d:
             enhanced_possible_inliers = [[int(centers[i][0]), int(centers[i][1])] for i in consensus_set_idx]
             enhanced_model = Ellipse(cv.fitEllipse(np.array(enhanced_possible_inliers)))
             mean_error = 0
@@ -207,16 +221,12 @@ def ransac(centers: List[List[float]]):
 def threshold(image, debug_img):
     gray_img = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
 
-    threshold = cv.getTrackbarPos('threshold', 'Parameters')
-    sigma = cv.getTrackbarPos('sigma', 'Parameters')
-    a_canny = cv.getTrackbarPos('a_canny', 'Parameters')
-    b_canny = cv.getTrackbarPos('b_canny', 'Parameters')
-    ret, thresh_img = cv.threshold(gray_img, threshold, 255, 0)
+    ret, thresh_img = cv.threshold(gray_img, Parameters.threshold, 255, 0)
 
     # Blur an image
-    bilateral_filtered_image = cv.bilateralFilter(thresh_img, 5, sigma, sigma)
+    bilateral_filtered_image = cv.bilateralFilter(thresh_img, 5,  Parameters.sigma, Parameters.sigma)
     # Detect edges
-    edge_img = cv.Canny(bilateral_filtered_image, a_canny, b_canny)
+    edge_img = cv.Canny(bilateral_filtered_image, Parameters.a_canny, Parameters.b_canny)
 
     return edge_img
 
@@ -243,17 +253,12 @@ def detect_wall(edge_img, debug_img) -> Rectangle | None:
 
     # Debug print rectangle
     for p in range(len(wall_rect.points)):
-        debug_img = cv.line(debug_img, wall_rect.points[p][0], wall_rect.points[(p + 1) % len(wall_rect.points)][0], (0, 0, 255), 2)
+        cv.line(debug_img, wall_rect.points[p][0], wall_rect.points[(p + 1) % len(wall_rect.points)][0], (0, 0, 255), 2)
 
     return wall_rect
 
 
 def detect_ellipses(edge_img, image, debug_img) -> List[Ellipse | None]:
-    ellipses_precision = cv.getTrackbarPos('ellipses_precision', 'Parameters')
-    ellipses_min_points = cv.getTrackbarPos('ellipses_min_points', 'Parameters')
-    ellipses_max_points = cv.getTrackbarPos('ellipses_max_points', 'Parameters')
-    ellipses_ratio = cv.getTrackbarPos('ellipses_ratio', 'Parameters')
-
     kernel_el = cv.getStructuringElement(cv.MORPH_ELLIPSE, (2 * MORPH_SIZE + 1, 2 * MORPH_SIZE + 1), (MORPH_SIZE, MORPH_SIZE))
     edge_img_el = cv.morphologyEx(edge_img, cv.MORPH_CLOSE, kernel_el, iterations=4)
 
@@ -263,14 +268,14 @@ def detect_ellipses(edge_img, image, debug_img) -> List[Ellipse | None]:
     # Find the ellipses for each contour
     ellipses: List[Ellipse | None] = [None] * len(contours)
     for i, c in enumerate(contours):
-        if ellipses_min_points < c.shape[0] < ellipses_max_points:
+        if Parameters.ellipses_min_points < c.shape[0] < Parameters.ellipses_max_points:
             # rects[i] = cv.minAreaRect(c)
             ellipses[i] = Ellipse(cv.fitEllipse(c))
 
     # Filter wrong ellipses
     for i, e in enumerate(ellipses):
         if e is not None:
-            if e.max_size > e.min_size * (ellipses_ratio / 100):
+            if e.max_size > e.min_size * (Parameters.ellipses_ratio / 100):
                 ellipses[i] = None
             else:
                 # Calculate a shape error estimation
@@ -278,7 +283,7 @@ def detect_ellipses(edge_img, image, debug_img) -> List[Ellipse | None]:
                 for p in contours[i]:
                     err = point2ellipse.point_ellipse_distance(e, (p[0][0], p[0][1]))
                     mean_err += err / len(contours[i])
-                if mean_err > ellipses_precision:
+                if mean_err > Parameters.ellipses_precision:
                     ellipses[i] = None
 
     # Filter ellipses too near
@@ -316,7 +321,7 @@ def order_wall_points(wall_rect: Rectangle) -> Rectangle:
     return wall_rect
 
 
-def detect_wall_pose(image, wall_rect: Rectangle, debug_img) -> Pose:
+def detect_wall_pose(image, wall_rect: Rectangle, debug_img) -> Pose | None:
     # points ordered [TopLeft, TopRight, BottLeft, BottRight]
     img_points = wall_rect.points
 
@@ -325,19 +330,19 @@ def detect_wall_pose(image, wall_rect: Rectangle, debug_img) -> Pose:
     if not success:
         return None
 
-    zero, _ = cv.projectPoints(np.array([(0.0, 0.0, 0.0)]), r, t, new_camera_matrix, distortion)
-    x_axis, _ = cv.projectPoints(np.array([(100.0, 0.0, 0.0)]), r, t, new_camera_matrix, distortion)
-    y_axis, _ = cv.projectPoints(np.array([(0.0, 100.0, 0.0)]), r, t, new_camera_matrix, distortion)
-    z_axis, _ = cv.projectPoints(np.array([(0.0, 0.0, 100.0)]), r, t, new_camera_matrix, distortion)
+    zero = cv.projectPoints(np.array([(0.0, 0.0, 0.0)]), r, t, new_camera_matrix, distortion)[0][0][0]
+    x_axis = cv.projectPoints(np.array([(100.0, 0.0, 0.0)]), r, t, new_camera_matrix, distortion)[0][0][0]
+    y_axis = cv.projectPoints(np.array([(0.0, 100.0, 0.0)]), r, t, new_camera_matrix, distortion)[0][0][0]
+    z_axis = cv.projectPoints(np.array([(0.0, 0.0, 100.0)]), r, t, new_camera_matrix, distortion)[0][0][0]
 
-    cv.line(debug_img, zero[0][0].astype('int'), x_axis[0][0].astype('int'), (255, 0, 0), 2)
-    cv.line(debug_img, zero[0][0].astype('int'), y_axis[0][0].astype('int'), (0, 255, 0), 2)
-    cv.line(debug_img, zero[0][0].astype('int'), z_axis[0][0].astype('int'), (0, 0, 255), 2)
+    cv.line(debug_img, zero .astype('int'), x_axis .astype('int'), (255, 0, 0), 2)
+    cv.line(debug_img, zero .astype('int'), y_axis .astype('int'), (0, 255, 0), 2)
+    cv.line(debug_img, zero .astype('int'), z_axis .astype('int'), (0, 0, 255), 2)
 
     return Pose(r, t)
 
 
-def get_3d_wall_points(wall_rect: Rectangle, plate_pose: Pose, wall_pose: Pose, debug_img) -> list[np.ndarray]:
+def get_3d_wall_corners(wall_rect: Rectangle, plate_pose: Pose, wall_pose: Pose, debug_img) -> list[np.ndarray]:
     # points ordered [TopLeft, TopRight, BottLeft, BottRight]
     img_points = wall_rect.points
 
@@ -410,7 +415,7 @@ def detect_wall_line(image, wall_rect: Rectangle, wall_3d_points: list[np.ndarra
     return top_3d_point, bottom_3d_point
 
 
-def detect_plate_laser_point(image, plate_pose: Pose, debug_img):
+def detect_plate_laser_point(image, hsv_img, plate_pose: Pose, debug_img):
     new_camera_matrix, distortion = get_info_solvepnp()
     search_area_dst_points = CircularMarker.get_laser_search_area(plate_pose.ti.item(0), plate_pose.ti.item(1))
     search_area_img_points = [cv.projectPoints(np.array(i), plate_pose.r, plate_pose.t, new_camera_matrix, distortion)[0][0][0] for i in search_area_dst_points]
@@ -421,17 +426,8 @@ def detect_plate_laser_point(image, plate_pose: Pose, debug_img):
         cv.line(img, search_area_img_points[3].astype('int'), search_area_img_points[2].astype('int'), (0, 255, 255), 3)
         cv.line(img, search_area_img_points[2].astype('int'), search_area_img_points[0].astype('int'), (0, 255, 255), 3)
 
-    r_dw = cv.getTrackbarPos('r_dw', 'Red_Filter')
-    r_up = cv.getTrackbarPos('r_up', 'Red_Filter')
-    g_dw = cv.getTrackbarPos('g_dw', 'Red_Filter')
-    g_up = cv.getTrackbarPos('g_up', 'Red_Filter')
-    b_dw = cv.getTrackbarPos('b_dw', 'Red_Filter')
-    b_up = cv.getTrackbarPos('b_up', 'Red_Filter')
-
-    lower_red = np.array([130, 130, 225], dtype="uint8")
-    upper_red = np.array([200, 200, 255], dtype="uint8")
-    lower_red = np.array([b_dw, g_dw, r_dw], dtype="uint8")
-    upper_red = np.array([b_up, g_up, r_up], dtype="uint8")
+    lower_red = np.array([Parameters.laser_b_dw, Parameters.laser_g_dw, Parameters.laser_r_dw], dtype="uint8")
+    upper_red = np.array([Parameters.laser_b_up, Parameters.laser_g_up, Parameters.laser_r_up], dtype="uint8")
     mask = cv.inRange(image, lower_red, upper_red)
     img_out = cv.bitwise_and(image, image, mask=mask)
 
@@ -443,29 +439,59 @@ def detect_plate_laser_point(image, plate_pose: Pose, debug_img):
     points_of_line = []
     for x in range(min_x, max_x):  # TODO check if inside polygon
         for y in range(min_y, max_y):
-            if mask[y][x] == 255:
+            if mask[y][x] == 255 and geometric_utility.is_inside_polygon(np.array([[x, y]]), np.array([search_area_img_points[0], search_area_img_points[1], search_area_img_points[3], search_area_img_points[2], search_area_img_points[0]])).shape[0] > 0:
                 points_of_line.append([[x, y]])
 
     if len(points_of_line) < 5:
-        return None, None
+        return None
     line = cv.fitLine(np.array(points_of_line), cv.DIST_L2, 0, 0.01, 0.01)
     vx: float = line[0][0]
     vy: float = line[1][0]
     x0: float = line[2][0]
     y0: float = line[3][0]
-    m = 100
-    cv.line(img_out, np.array([int(x0 - m * vx), int(y0 - m * vy)]), np.array([int(x0 + m * vx), int(y0 + m * vy)]), (255, 255, 0), 3)
-
-    intersection_2d = geometric_utility.get_line_intersection([x0, y0], [x0 + vx, y0 + vy], search_area_img_points[2], search_area_img_points[3])
-    cv.circle(debug_img, (intersection_2d).astype('int'), 10, (0, 255, 0), cv.FILLED)
+    intersection_2d = geometric_utility.get_lines_intersection([x0, y0], [x0 + vx, y0 + vy], search_area_img_points[2], search_area_img_points[3])
+    cv.circle(debug_img, intersection_2d.astype('int'), 10, (0, 255, 0), cv.FILLED)
 
     print_search_area(debug_img)
     print_search_area(img_out)
     img_out = imutils.resize(img_out, height=600)
-    cv.imshow("Img_4", img_out)
+    # cv.imshow("Img_4", img_out)
 
     intersection_3d = back_projection_z(intersection_2d[0], intersection_2d[1], 0.0, plate_pose)
     return intersection_3d
+
+
+def detect_object_points(image, hsv_img, out_file: OutputXYZ, plate_pose: Pose, laser_plane, debug_img):
+    new_camera_matrix, distortion = get_info_solvepnp()
+
+    zero = cv.projectPoints(np.array([(0.0, 0.0, 0.0)]), plate_pose.r, plate_pose.t, new_camera_matrix, distortion)[0][0][0]
+
+    min_x = -100.0
+    max_x = 100.0
+    min_y = -250.0
+    max_y = 100.0
+    p1 = (zero + np.array([min_x, min_y])).astype('int')
+    p2 = (zero + np.array([max_x, min_y])).astype('int')
+    p3 = (zero + np.array([max_x, max_y])).astype('int')
+    p4 = (zero + np.array([min_x, max_y])).astype('int')
+
+    lower_red = np.array([Parameters.laser_h_dw, Parameters.laser_s_dw, Parameters.laser_v_dw], dtype="int")
+    upper_red = np.array([Parameters.laser_h_up, Parameters.laser_s_up, Parameters.laser_v_up], dtype="int")
+    mask = cv.inRange(hsv_img, lower_red, upper_red)
+
+    for x in range(int(zero[0] + min_x), int(zero[0] + max_x)):
+        for y in range(int(zero[1] + min_y), int(zero[1] + max_y)):
+            if mask[y][x] == 255:
+                aa = back_projection_plane(float(x), float(y), laser_plane, plate_pose)
+                out_file.add_point(aa)
+
+    img_out = cv.bitwise_and(hsv_img, hsv_img, mask=mask)
+    cv.line(img_out, p1, p2, (255, 0, 255), 3)
+    cv.line(img_out, p2, p3, (255, 0, 255), 3)
+    cv.line(img_out, p3, p4, (255, 0, 255), 3)
+    cv.line(img_out, p4, p1, (255, 0, 255), 3)
+    img_out = imutils.resize(img_out, height=600)
+    cv.imshow("Img_4", img_out)
 
 
 def main():
@@ -473,41 +499,32 @@ def main():
     cv.namedWindow("Img_2")
     cv.namedWindow("Img_3")
     cv.namedWindow("Img_4")
-    cv.namedWindow("Parameters")
-    cv.createTrackbar('threshold', 'Parameters', 87, 255, nothing)
-    cv.createTrackbar('ellipses_precision', 'Parameters', 30, 100, nothing)
-    cv.createTrackbar('ellipses_min_points', 'Parameters', 30, 100, nothing)
-    cv.createTrackbar('ellipses_max_points', 'Parameters', 300, 1000, nothing)
-    cv.createTrackbar('ellipses_ratio', 'Parameters', 200, 1000, nothing)
-    cv.createTrackbar('sigma', 'Parameters', 150, 255, nothing)
-    cv.createTrackbar('a_canny', 'Parameters', 75, 255, nothing)
-    cv.createTrackbar('b_canny', 'Parameters', 200, 255, nothing)
 
-    cv.namedWindow("Ransac")
-    cv.createTrackbar('n', 'Ransac', 5, 30, nothing)
-    cv.createTrackbar('k', 'Ransac', 400, 5000, nothing)
-    cv.createTrackbar('t', 'Ransac', 400, 400, nothing)  # 25
-    cv.createTrackbar('d', 'Ransac', 7, 30, nothing)
+    parameters.init_parameters()
 
-    cv.namedWindow("Red_Filter")
-    cv.createTrackbar('b_dw', 'Red_Filter', 110, 255, nothing)
-    cv.createTrackbar('b_up', 'Red_Filter', 200, 255, nothing)
-    cv.createTrackbar('g_dw', 'Red_Filter', 110, 255, nothing)
-    cv.createTrackbar('g_up', 'Red_Filter', 200, 255, nothing)
-    cv.createTrackbar('r_dw', 'Red_Filter', 215, 255, nothing)
-    cv.createTrackbar('r_up', 'Red_Filter', 255, 255, nothing)
+    video = cv.VideoCapture('.\\data\\cat.mov')
 
-    video = cv.VideoCapture('.\\data\\cube.mov')
+    out_file = OutputXYZ()
+    start_time = time.time()
 
     # Loop the frames in the video and take NUM_OF_FRAMES equally spaced frames
     video_length = int(video.get(cv.CAP_PROP_FRAME_COUNT))
     for frame_i in range(video_length):
+        frame_time = time.time() - start_time
+        start_time = time.time()
+        fps = 1/frame_time if frame_time != 0 else 0
+
         success, image = video.read()
         if success:
             image = undistort_image(image)
             debug_img = image.copy()
             drop_img = image.copy()
 
+            parameters.update_parameters()
+
+            debug_img = cv.putText(debug_img, "fps: {:.2f}".format(fps), [50, 50], cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+            hsv_img = cv.cvtColor(image, cv.COLOR_BGR2HSV)
             edge_img = threshold(image, debug_img)
             wall_rect = detect_wall(edge_img, debug_img)
             wall_rect = order_wall_points(wall_rect)
@@ -528,20 +545,36 @@ def main():
                     cv.ellipse(debug_img, ellipse_master.raw, (0, 255, 255), 2)
                     plate_pose = detect_plate_pose(image, ellipse_master.center.raw, ellipses_centers, debug_img)
                     if plate_pose is not None and wall_pose is not None:
-                        plate_3d_point = detect_plate_laser_point(image, plate_pose, debug_img)
+                        plate_3d_point = detect_plate_laser_point(image, hsv_img, plate_pose, debug_img)
 
-                        wall_3d_points = get_3d_wall_points(wall_rect, plate_pose, wall_pose, debug_img)
+                        wall_3d_points = get_3d_wall_corners(wall_rect, plate_pose, wall_pose, debug_img)
 
-                        # geometric_utility.get_plane(wall_3d_points[0], wall_3d_points[1], wall_3d_points[2])
                         top_3d_point, bottom_3d_point = detect_wall_line(image, wall_rect, wall_3d_points, debug_img)
 
-                        new_camera_matrix, distortion = get_info_solvepnp()
-                        aa, _ = cv.projectPoints(top_3d_point, plate_pose.r, plate_pose.t, new_camera_matrix, distortion)
-                        bb, _ = cv.projectPoints(bottom_3d_point, plate_pose.r, plate_pose.t, new_camera_matrix, distortion)
+                        if plate_3d_point is not None and top_3d_point is not None and bottom_3d_point is not None:
+                            laser_plane = geometric_utility.get_plane(top_3d_point, bottom_3d_point, plate_3d_point)
 
-                        cv.circle(debug_img, aa.astype('int')[0][0], 10, (0, 255, 0), cv.FILLED)
-                        cv.circle(debug_img, bb.astype('int')[0][0], 10, (0, 255, 0), cv.FILLED)
+                            detect_object_points(image, hsv_img, out_file, plate_pose, laser_plane, debug_img)
 
+                            new_camera_matrix, distortion = get_info_solvepnp()
+                            aa = cv.projectPoints(top_3d_point, plate_pose.r, plate_pose.t, new_camera_matrix, distortion)[0][0][0]
+                            bb = cv.projectPoints(bottom_3d_point, plate_pose.r, plate_pose.t, new_camera_matrix, distortion)[0][0][0]
+                            cv.circle(debug_img, aa.astype('int'), 10, (0, 255, 0), cv.FILLED)
+                            cv.circle(debug_img, bb.astype('int'), 10, (0, 255, 0), cv.FILLED)
+
+
+                            # l1 = (laser_plane[0]*i_dec + laser_plane[1]*j_dec + laser_plane[3]) / -laser_plane[2]
+                            # l2 = (laser_plane[0]*j_dec + laser_plane[1]*i_dec + laser_plane[3]) / -laser_plane[2]
+                            # l3 = (laser_plane[2]*i_dec + laser_plane[0]*j_dec + laser_plane[3]) / -laser_plane[1]
+                            # l4 = (laser_plane[2]*j_dec + laser_plane[0]*i_dec + laser_plane[3]) / -laser_plane[1]
+                            # l5 = (laser_plane[2]*i_dec + laser_plane[1]*j_dec + laser_plane[3]) / -laser_plane[0]
+                            # l6 = (laser_plane[2]*j_dec + laser_plane[1]*i_dec + laser_plane[3]) / -laser_plane[0]
+                            # l1_3d = np.array([i_dec, j_dec, l1])
+                            # l2_3d = np.array([j_dec, i_dec, l2])
+                            # l3_3d = np.array([j_dec, l3, i_dec])
+                            # l4_3d = np.array([i_dec, l4, j_dec])
+                            # l5_3d = np.array([l5, j_dec, i_dec])
+                            # l6_3d = np.array([l6, i_dec, j_dec])
 
             # cv.imwrite(".\\data\\debug\\image.jpg", debug_img)
             debug_img = imutils.resize(debug_img, height=600)
