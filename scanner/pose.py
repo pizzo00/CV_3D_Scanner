@@ -5,6 +5,8 @@ import cv2 as cv
 class Pose:
     @staticmethod
     def invert_pose(r, t):
+        # ri = -r
+        # ti = -r^t @ t
         return np.matrix(r).T, (-np.matrix(r).T) @ np.matrix(t)
 
     @staticmethod

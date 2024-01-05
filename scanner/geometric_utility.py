@@ -8,12 +8,13 @@ def magnitude(x: float, y: float, z: float = 0.0) -> float:
 
 # https://stackoverflow.com/a/47823499/7490904
 def get_lines_intersection(a0: List[float], a1: List[float], b0: List[float], b1: List[float]):
-    A = np.array([a0, a1])
-    B = np.array([b0, b1])
-    t, s = np.linalg.solve(np.array([A[1] - A[0], B[0] - B[1]]).T, B[0] - A[0])
-    return (1 - t) * A[0] + t * A[1]
+    a = np.array([a0, a1])
+    b = np.array([b0, b1])
+    t, _ = np.linalg.solve(np.array([a[1] - a[0], b[0] - b[1]]).T, b[0] - a[0])
+    return (1 - t) * a[0] + t * a[1]
 
 
+# https://stackoverflow.com/a/18543221/7490904
 def get_line_plane_intersection(l0: np.ndarray[float], l1: np.ndarray[float], plane, epsilon=1e-6):
     u = l1 - l0
     plane_xyz = np.array([plane[0], plane[1], plane[2]])
@@ -26,6 +27,7 @@ def get_line_plane_intersection(l0: np.ndarray[float], l1: np.ndarray[float], pl
         return l0 + (u * fac)
 
     return None
+
 
 # https://math.stackexchange.com/a/2686620/1125695
 def get_plane(point1, point2, point3):

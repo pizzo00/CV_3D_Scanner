@@ -8,7 +8,7 @@ def nothing(x):
 ENABLE_PARAMETERS = False
 ENABLE_RANSAC = False
 ENABLE_RED_FILTER = False
-ENABLE_RED_FILTER2 = True
+ENABLE_RED_FILTER2 = False
 
 
 def init_parameters():
@@ -84,34 +84,33 @@ def update_parameters():
 
 
 class Parameters:
-    threshold: float = 87
-    ellipses_precision: float = 30
-    ellipses_min_points: float = 30
-    ellipses_max_points: float = 300
-    ellipses_ratio: float = 200
-    sigma: float = 150
-    a_canny: float = 75
-    b_canny: float = 200
+    threshold: int = 87
+    ellipses_precision: int = 30
+    ellipses_min_points: int = 30
+    ellipses_max_points: int = 300
+    ellipses_ratio: int = 200
+    sigma: int = 150
+    a_canny: int = 75
+    b_canny: int = 200
 
     # ransac
-    ransac_n: float = 5
-    ransac_k: float = 35
-    ransac_t: float = 400  # 25
-    ransac_d: float = 7
+    ransac_n: int = 5
+    ransac_k: int = 35
+    ransac_t: int = 400  # 25
+    ransac_d: int = 7
 
     # red filter
-    laser_b_dw: float = 110
-    laser_b_up: float = 200
-    laser_g_dw: float = 110
-    laser_g_up: float = 200
-    laser_r_dw: float = 215
-    laser_r_up: float = 255
-
+    laser_b_dw: int = 150
+    laser_b_up: int = 195
+    laser_g_dw: int = 150
+    laser_g_up: int = 195
+    laser_r_dw: int = 205
+    laser_r_up: int = 255
 
     # red filter2
-    laser_h_dw: float = 157
-    laser_h_up: float = 180
-    laser_s_dw: float = 25
-    laser_s_up: float = 165
-    laser_v_dw: float = 190
-    laser_v_up: float = 255
+    laser_h_dw: int = 157
+    laser_h_up: int = 180
+    laser_s_dw: int = 50
+    laser_s_up: int = 165
+    laser_v_dw: int = 190
+    laser_v_up: int = 255

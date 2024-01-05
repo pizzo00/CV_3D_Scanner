@@ -25,30 +25,16 @@ class MarkerColors(Enum):
 
     @staticmethod
     def get_from_pixel_debug(image, x: int, y: int) -> Tuple[int, int, int]:
-        pixel = MarkerColors._get_pixel_safe(image, x, y)
-        if pixel is None:
-            return 150, 150, 150
-
-        threshold = 75
-        r = pixel[2]
-        g = pixel[1]
-        b = pixel[0]
-
-        # return (int(r), int(g), int(b))
-
-        rt = r > threshold
-        gt = g > threshold
-        bt = b > threshold
-
-        if rt and gt and bt:
+        color = MarkerColors.get_from_pixel(image, x, y)
+        if MarkerColors.White:
             return 255, 255, 255
-        if gt and bt:
+        if MarkerColors.Cyan:
             return 255, 255, 0
-        if rt and gt:
+        if MarkerColors.Yellow:
             return 0, 255, 255
-        if rt and bt:
+        if MarkerColors.Magenta:
             return 255, 0, 255
-        if not rt and not gt and not bt:
+        if MarkerColors.Black:
             return 0, 0, 0
         return 150, 150, 150
 
