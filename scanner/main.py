@@ -632,6 +632,8 @@ def main():
 
         detect_object_points(hsv_img, out_file, plate_pose, laser_plane, debug_img)
 
+        out_file.print_preview(plate_pose)
+
         debug_img = imutils.resize(debug_img, height=600)
         edge_img = imutils.resize(edge_img, height=600)
         cv.imshow("Img_1", debug_img)

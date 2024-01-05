@@ -26,15 +26,15 @@ class MarkerColors(Enum):
     @staticmethod
     def get_from_pixel_debug(image, x: int, y: int) -> Tuple[int, int, int]:
         color = MarkerColors.get_from_pixel(image, x, y)
-        if MarkerColors.White:
+        if color == MarkerColors.White:
             return 255, 255, 255
-        if MarkerColors.Cyan:
+        if color == MarkerColors.Cyan:
             return 255, 255, 0
-        if MarkerColors.Yellow:
+        if color == MarkerColors.Yellow:
             return 0, 255, 255
-        if MarkerColors.Magenta:
+        if color == MarkerColors.Magenta:
             return 255, 0, 255
-        if MarkerColors.Black:
+        if color == MarkerColors.Black:
             return 0, 0, 0
         return 150, 150, 150
 
