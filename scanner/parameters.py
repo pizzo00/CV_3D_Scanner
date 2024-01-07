@@ -84,6 +84,13 @@ def update_parameters():
 
 
 class Parameters:
+    win_3d = False
+    win_main = True
+    win_wall = False
+    win_thres = False
+    win_laser_obj = False
+    win_plate_homo = False
+
     threshold: int = 87
     ellipses_precision: int = 30
     ellipses_min_points: int = 30

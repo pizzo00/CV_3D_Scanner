@@ -1,7 +1,7 @@
+import json
 import random
 import time
 from typing import List, Tuple
-
 import parameters
 from output import OutputXYZ
 from parameters import Parameters
@@ -23,6 +23,35 @@ SCANNER_INTERVAL = 5
 # step_by when laser lines is fitted detection (in pixel)
 LASER_PLANE_FIT_INTERVAL_X = 10
 LASER_PLANE_FIT_INTERVAL_Y = 3
+
+times = dict()
+
+
+def get_time_stats(filename: str):
+    max_t = {k: max(v) for k, v in times.items()}
+    min_t = {k: min(v) for k, v in times.items()}
+    mean_t = {k: sum(v) / len(v) for k, v in times.items()}
+    mean_sum = sum([v for _, v in mean_t.items()])
+    perc_t = {k: v * 100 / mean_sum for k, v in mean_t.items()}
+
+    out = {
+        'max': max_t, 'min': min_t, 'mean': mean_t, 'percent': perc_t
+    }
+    with open(filename + '.json', 'w', encoding='utf-8') as f:
+        json.dump(out, f, ensure_ascii=False, indent=4)
+
+
+def stopwatch(func):
+    if func.__name__ not in times:
+        times[func.__name__] = []
+
+    def wrapper(*arg, **kw):
+        t1 = time.time()
+        res = func(*arg, **kw)
+        t2 = time.time()
+        times[func.__name__].append((t2 - t1))
+        return res
+    return wrapper
 
 
 def get_info_solvepnp():
@@ -102,6 +131,24 @@ def back_projection_distance(img_x: float, img_y: float, distance: float, pose: 
 
 
 # *
+@stopwatch
+def change_pose(x: float, y: float, z: float, src_pose: Pose, dst_pose: Pose):
+    src_world_point = np.array([x, y, z, 1.0]).T
+
+    # Pass from src world coordinates to camera coordinates
+    # camera_point = src_pose.m @ src_world_point
+    # Pass from camera coordinates to dst world coordinates
+    # dst_world_point = dst_pose.mi @ camera_point.T
+
+    # Equals to: (poses combination can be combined)
+    dst_world_point = (dst_pose.mi @ src_pose.m) @ src_world_point
+
+    dst_world_point = np.array(dst_world_point[0,:-1]).flatten() / dst_world_point.item(3)
+    return dst_world_point
+
+
+# *
+@stopwatch
 def detect_plate_pose(image, center: Tuple[float, float], centers: List[List[float]], debug_img) -> Pose | None:
     circular_marker = CircularMarker()
     export = image.copy()
@@ -155,12 +202,13 @@ def detect_plate_pose(image, center: Tuple[float, float], centers: List[List[flo
     # cv.imshow("Img_3", export)
 
     if len(img_points) > 4:  # Can be increased for precision
-        # Find homograpy (Used only for debug)
-        # M, mask = cv.findHomography(np.array(img_points), np.array([[m[0] + 300, m[1] + 300] for m in dst_points]))
-        # img_out = cv.warpPerspective(image, M, (600, 600))
-        #
-        # img_out = imutils.resize(img_out, height=600)
-        # cv.imshow("Img_3", img_out)
+        if Parameters.win_plate_homo:
+            # Find homograpy (Used only for debug)
+            M, mask = cv.findHomography(np.array(img_points), np.array([[m[0] + 300, m[1] + 300] for m in dst_points]))
+            img_out = cv.warpPerspective(image, M, (600, 600))
+
+            img_out = imutils.resize(img_out, height=600)
+            cv.imshow("Plate_homo", img_out)
 
         # Solve PnP
         camera_matrix, distortion = get_info_solvepnp()
@@ -188,6 +236,7 @@ def detect_plate_pose(image, center: Tuple[float, float], centers: List[List[flo
     return None
 
 
+@stopwatch
 def ransac(centers: List[List[float]], debug_img):
     n = max(Parameters.ransac_n, 5)
 
@@ -226,7 +275,15 @@ def ransac(centers: List[List[float]], debug_img):
 
 
 # *
-def threshold(image, debug_img):
+@stopwatch
+def read_frame(video):
+    success, image = video.read()
+    return image if success else None
+
+
+# *
+@stopwatch
+def threshold(image):
     # Convert to grayscale
     gray_img = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
 
@@ -243,6 +300,7 @@ def threshold(image, debug_img):
 
 
 # *
+@stopwatch
 def detect_wall(edge_img, debug_img) -> Rectangle | None:
     # Apply closing
     MORPH_SIZE = 2
@@ -272,6 +330,7 @@ def detect_wall(edge_img, debug_img) -> Rectangle | None:
 
 
 # *
+@stopwatch
 def detect_ellipses(edge_img, image, debug_img) -> List[Ellipse | None]:
     # Apply closing
     MORPH_SIZE = 2
@@ -294,14 +353,14 @@ def detect_ellipses(edge_img, image, debug_img) -> List[Ellipse | None]:
             # Filter by ellipse ratio
             if e.max_size > e.min_size * (Parameters.ellipses_ratio / 100):
                 ellipses[i] = None
-            else:
+            # else:
                 # Calculate a shape error estimation
-                mean_err = 0
-                for p in contours[i]:
-                    err = point2ellipse.point_ellipse_distance(e, (p[0][0], p[0][1]))
-                    mean_err += err / len(contours[i])
-                if mean_err > Parameters.ellipses_precision:
-                    ellipses[i] = None
+                # mean_err = 0
+                # for p in contours[i]:
+                #     err = point2ellipse.point_ellipse_distance(e, (p[0][0], p[0][1]))
+                #     mean_err += err / len(contours[i])
+                # if mean_err > Parameters.ellipses_precision:
+                #     ellipses[i] = None
 
     # Filter ellipses too near to another ellipses
     for i, e in enumerate(ellipses):
@@ -328,6 +387,7 @@ def detect_ellipses(edge_img, image, debug_img) -> List[Ellipse | None]:
 
 
 # *
+@stopwatch
 def order_wall_points(wall_rect: Rectangle) -> Rectangle:
     # Separate points in top and bottom and then order by x
     unpacked_points = [i[0] * 1.0 for i in wall_rect.points]
@@ -341,6 +401,7 @@ def order_wall_points(wall_rect: Rectangle) -> Rectangle:
 
 
 # *
+@stopwatch
 def detect_wall_pose(wall_rect: Rectangle, debug_img) -> Pose | None:
     # points ordered [TopLeft, TopRight, BottLeft, BottRight]
     img_points = wall_rect.points
@@ -364,16 +425,19 @@ def detect_wall_pose(wall_rect: Rectangle, debug_img) -> Pose | None:
 
 
 # *
+@stopwatch
 def get_3d_wall_corners(wall_rect: Rectangle, plate_pose: Pose, wall_pose: Pose, debug_img) -> list[np.ndarray]:
     # points ordered [TopLeft, TopRight, BottLeft, BottRight]
     img_points = wall_rect.points
 
     wall_3d_points: list[np.ndarray] = []
+    wall_3d_points_b: list[np.ndarray] = []
     for i in range(4):
         # Get distance of point from focal point
-        distance_from_point = geometric_utility.magnitude(wall_pose.ti.item(0) - WallMarker.points[i][0], wall_pose.ti.item(1) - WallMarker.points[i][1], wall_pose.ti.item(2))
+        # distance_from_point = geometric_utility.magnitude(wall_pose.ti.item(0) - WallMarker.points[i][0], wall_pose.ti.item(1) - WallMarker.points[i][1], wall_pose.ti.item(2))
         # Get wall points relative to plate_zero
-        wall_3d_points.append(back_projection_distance(img_points[i][0], img_points[i][1], distance_from_point, plate_pose))
+        # wall_3d_points.append(back_projection_distance(img_points[i][0], img_points[i][1], distance_from_point, plate_pose))
+        wall_3d_points.append(change_pose(WallMarker.points[i][0], WallMarker.points[i][1], WallMarker.points[i][2], wall_pose, plate_pose))
 
     # Print coordinates for debug
     cv.putText(debug_img, "{}, {}, {}".format(int(wall_3d_points[0][0]), int(wall_3d_points[0][1]), int(wall_3d_points[0][2])), [50, 100], cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
@@ -385,6 +449,7 @@ def get_3d_wall_corners(wall_rect: Rectangle, plate_pose: Pose, wall_pose: Pose,
 
 
 # *
+@stopwatch
 def detect_wall_line(image, wall_rect: Rectangle, wall_3d_points: list[np.ndarray], plate_pose: Pose, debug_img):
     margin = 5  # Prevent black pixel of contours
 
@@ -435,8 +500,9 @@ def detect_wall_line(image, wall_rect: Rectangle, wall_3d_points: list[np.ndarra
     cv.circle(homo_img, [int(x1), int(y1)], 2, (0, 255, 0), cv.FILLED)
     cv.circle(homo_img, [int(x2), int(y2)], 2, (0, 255, 0), cv.FILLED)
 
-    homo_img = imutils.resize(homo_img, height=600)
-    cv.imshow("Img_3", homo_img)
+    if Parameters.win_wall:
+        homo_img = imutils.resize(homo_img, height=600)
+        cv.imshow("Wall", homo_img)
 
     # Get positions relative to the segments
     top_point_percentage = x1 / WallMarker.w_dec
@@ -459,6 +525,7 @@ def detect_wall_line(image, wall_rect: Rectangle, wall_3d_points: list[np.ndarra
 
 
 # *
+@stopwatch
 def detect_plate_laser_point(hsv_img, plate_pose: Pose, debug_img):
     camera_matrix, distortion = get_info_solvepnp()
 
@@ -514,6 +581,7 @@ def detect_plate_laser_point(hsv_img, plate_pose: Pose, debug_img):
 
 
 # *
+@stopwatch
 def detect_object_points(hsv_img, out_file: OutputXYZ, plate_pose: Pose, laser_plane, debug_img):
     camera_matrix, distortion = get_info_solvepnp()
 
@@ -549,24 +617,31 @@ def detect_object_points(hsv_img, out_file: OutputXYZ, plate_pose: Pose, laser_p
         cv.line(img, p4, p1, (255, 0, 255), 2)
 
     # Debug Print
-    img_out = cv.bitwise_and(hsv_img, hsv_img, mask=mask)
     print_search_area(debug_img)
-    print_search_area(img_out)
-    img_out = imutils.resize(img_out, height=600)
-    cv.imshow("Img_4", img_out)
+    if Parameters.win_laser_obj:
+        img_out = cv.bitwise_and(hsv_img, hsv_img, mask=mask)
+        print_search_area(img_out)
+        img_out = imutils.resize(img_out, height=600)
+        cv.imshow("Laser_obj", img_out)
 
 
 def main():
-    cv.namedWindow("Img_1")
-    cv.namedWindow("Img_2")
-    cv.namedWindow("Img_3")
-    cv.namedWindow("Img_4")
-
-    parameters.init_parameters()
+    if Parameters.win_main:
+        cv.namedWindow("Main")
+    if Parameters.win_thres:
+        cv.namedWindow("Threshold")
+    if Parameters.win_wall:
+        cv.namedWindow("Wall")
+    if Parameters.win_laser_obj:
+        cv.namedWindow("Laser_obj")
+    if Parameters.win_plate_homo:
+        cv.namedWindow("Plate_homo")
 
     video = cv.VideoCapture('.\\data\\ball.mov')
+    output_filename = '.\\data\\output\\' + time.strftime("%Y-%m-%d_%H.%M.%S") + '_ball'
+    parameters.init_parameters()
 
-    out_file = OutputXYZ()
+    out_file = OutputXYZ(output_filename)
     start_time = time.time()
 
     # Loop the frames in the video and take NUM_OF_FRAMES equally spaced frames
@@ -576,8 +651,8 @@ def main():
         start_time = time.time()
         fps = 1/frame_time if frame_time != 0 else 0
 
-        success, image = video.read()
-        if not success:
+        image = read_frame(video)
+        if image is None:
             continue
 
         image = undistort_image(image)
@@ -589,7 +664,7 @@ def main():
         cv.putText(debug_img, "fps: {:.2f}".format(fps), [50, 50], cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
         hsv_img = cv.cvtColor(image, cv.COLOR_BGR2HSV)
-        edge_img = threshold(image, debug_img)
+        edge_img = threshold(image)
 
         # Wall
         wall_rect = detect_wall(edge_img, debug_img)
@@ -636,16 +711,19 @@ def main():
 
         debug_img = imutils.resize(debug_img, height=600)
         edge_img = imutils.resize(edge_img, height=600)
-        cv.imshow("Img_1", debug_img)
-        cv.imshow("Img_2", edge_img)
+        if Parameters.win_main:
+            cv.imshow("Main", debug_img)
+        if Parameters.win_thres:
+            cv.imshow("Threshold", edge_img)
 
         # ESC to break
         k = cv.waitKey(1) & 0xFF
         if k == 27:
             break
 
+    get_time_stats(output_filename)
+    cv.destroyAllWindows()
+
 
 if __name__ == '__main__':
     main()
-    cv.destroyAllWindows()
-    pass
