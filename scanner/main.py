@@ -58,7 +58,7 @@ def stopwatch(func):
 
 def get_info_solvepnp():
     camera_matrix = get_camera_matrix()
-    distortion = np.zeros((4, 1))  # get_distortion()
+    distortion = np.zeros((1, 5))  # get_distortion()
     return camera_matrix, distortion
 
 

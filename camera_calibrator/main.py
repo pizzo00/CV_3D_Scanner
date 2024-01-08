@@ -46,12 +46,9 @@ def main():
     print('Read %d frames' % len(images))
     useful_frames = 0
     for i, image in enumerate(images):
-        # convert to grayscale
+        # Convert to grayscale
         gray_img = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
         found, corners = cv.findChessboardCorners(gray_img, CHECKERBOARD, None)
-        # cv.CALIB_CB_ADAPTIVE_THRESH +
-        # cv.CALIB_CB_FAST_CHECK +
-        # cv.CALIB_CB_NORMALIZE_IMAGE)
 
         # Chessboard found
         if found:
@@ -72,12 +69,8 @@ def main():
     print('Used %d frames' % useful_frames)
 
     if useful_frames > 0:
-        # Perform camera calibration by
-        # passing the value of above found out 3D points
-        # and its corresponding pixel coordinates of the
-        # detected corners
-        ret, matrix, distortion, r_vecs, t_vecs = cv.calibrateCamera(
-            points_3d, points_2d, gray_img.shape[::-1], None, None)
+        # Perform camera calibration by passing the 3D-2D points correspondences
+        ret, matrix, distortion, r_vecs, t_vecs = cv.calibrateCamera(points_3d, points_2d, gray_img.shape[::-1], None, None)
 
         # Save the camera calibration result for later use
         pickle.dump((matrix, distortion), open(".\\data\\calibration.pkl", "wb"))
