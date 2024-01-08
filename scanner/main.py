@@ -1,7 +1,9 @@
+import argparse
 import json
 import random
 import time
 from typing import List, Tuple
+from Bio import pairwise2
 import parameters
 from output import OutputXYZ
 from parameters import Parameters
@@ -18,7 +20,7 @@ from undistorion import undistort_image, get_camera_matrix, get_distortion, get_
 from wall_marker import WallMarker
 
 # step_by of laser scan (in pixel)
-SCANNER_INTERVAL = 5
+SCANNER_INTERVAL = 3
 
 # step_by when laser lines is fitted detection (in pixel)
 LASER_PLANE_FIT_INTERVAL_X = 10
@@ -60,7 +62,6 @@ def get_info_solvepnp():
     return camera_matrix, distortion
 
 
-# *
 def back_projection_plane(img_x: float, img_y: float, plane, pose: Pose):
     camera_matrix, distortion = get_info_solvepnp()
 
@@ -80,7 +81,6 @@ def back_projection_plane(img_x: float, img_y: float, plane, pose: Pose):
     return world_point
 
 
-# *
 def back_projection_z(img_x: float, img_y: float, world_z: float, pose: Pose):
     camera_matrix, distortion = get_info_solvepnp()
 
@@ -107,7 +107,6 @@ def back_projection_z(img_x: float, img_y: float, world_z: float, pose: Pose):
     return world_point
 
 
-# *
 def back_projection_distance(img_x: float, img_y: float, distance: float, pose: Pose):
     camera_matrix, distortion = get_info_solvepnp()
 
@@ -130,8 +129,6 @@ def back_projection_distance(img_x: float, img_y: float, distance: float, pose: 
     return world_point
 
 
-# *
-@stopwatch
 def change_pose(x: float, y: float, z: float, src_pose: Pose, dst_pose: Pose):
     src_world_point = np.array([x, y, z, 1.0]).T
 
@@ -140,14 +137,13 @@ def change_pose(x: float, y: float, z: float, src_pose: Pose, dst_pose: Pose):
     # Pass from camera coordinates to dst world coordinates
     # dst_world_point = dst_pose.mi @ camera_point.T
 
-    # Equals to: (poses combination can be combined)
+    # Equals to: (poses combination can be precomputed)
     dst_world_point = (dst_pose.mi @ src_pose.m) @ src_world_point
 
-    dst_world_point = np.array(dst_world_point[0,:-1]).flatten() / dst_world_point.item(3)
+    dst_world_point = np.array(dst_world_point[0, :-1]).flatten() / dst_world_point.item(3)
     return dst_world_point
 
 
-# *
 @stopwatch
 def detect_plate_pose(image, center: Tuple[float, float], centers: List[List[float]], debug_img) -> Pose | None:
     circular_marker = CircularMarker()
@@ -157,6 +153,16 @@ def detect_plate_pose(image, center: Tuple[float, float], centers: List[List[flo
     marker_idx_img_points = [[] for _ in circular_marker.points]
     # Ellipses centers ordered counter-clockwise (like the marker indexes)
     centers = sorted(centers, reverse=True, key=lambda x: geometric_utility.get_angle(center, x))
+
+    # bio_colors = []
+    # for i in centers:
+    #     bio_c = MarkerColors.get_from_pixel(image, int(i[0]), int(i[1]))
+    #     if bio_c is not MarkerColors.NoneColor:
+    #         bio_colors.append(bio_c.value)
+    # bio_fullcolors = ['Y', 'W', 'M', 'B', 'M', 'M', 'C', 'C', 'C', 'Y', 'W', 'B', 'M', 'Y', 'W', 'B', 'Y', 'W', 'B', 'C']
+    # bio_fullcolors += bio_fullcolors + bio_fullcolors
+    # for a in pairwise2.align.localms(''.join(bio_fullcolors), ''.join(bio_colors), 1, -1000, -1, -1):
+    #     print(pairwise2.format_alignment(*a))
 
     # Sliding windows of length 4 to recognize markers
     for i in range(len(centers)):
@@ -237,17 +243,20 @@ def detect_plate_pose(image, center: Tuple[float, float], centers: List[List[flo
 
 
 @stopwatch
-def ransac(centers: List[List[float]], debug_img):
+def ransac_ellipses(centers: List[List[float]], debug_img):
     n = max(Parameters.ransac_n, 5)
 
     best_model: Ellipse | None = None
     best_error = 0
     for iteration in range(Parameters.ransac_k):
+        # Take n random centers
         possible_inliers_idx = set(random.sample([i for i in range(len(centers))], n))
         possible_inliers = [[int(centers[i][0]), int(centers[i][1])] for i in possible_inliers_idx]
+        # Fit an ellipse
         possible_model = Ellipse(cv.fitEllipse(np.array(possible_inliers)))
         consensus_set_idx = possible_inliers_idx
 
+        # Add all the centers that far less than t
         for i, c in enumerate(centers):
             if i not in possible_inliers_idx:
                 dist = point2ellipse.point_ellipse_distance(possible_model, (c[0], c[1]))
@@ -257,8 +266,9 @@ def ransac(centers: List[List[float]], debug_img):
         if len(consensus_set_idx) >= Parameters.ransac_d:
             enhanced_possible_inliers = [[int(centers[i][0]), int(centers[i][1])] for i in consensus_set_idx]
             enhanced_model = Ellipse(cv.fitEllipse(np.array(enhanced_possible_inliers)))
+
+            # Calculate mean error
             mean_error = 0
-            # max_error = 0
             for i, c in enumerate(centers):
                 if i not in consensus_set_idx:
                     dist = point2ellipse.point_ellipse_distance(enhanced_model, (c[0], c[1]))
@@ -266,22 +276,22 @@ def ransac(centers: List[List[float]], debug_img):
                     # max_error = max(max_error, dist)
 
             if best_model is None or mean_error < best_error:
+                # Found a new best model
                 best_model = enhanced_model
                 best_error = mean_error
 
     # Debug print
-    cv.ellipse(debug_img, best_model.raw, (0, 255, 255), 2)
+    if best_model is not None:
+       cv.ellipse(debug_img, best_model.raw, (0, 255, 255), 2)
     return best_model
 
 
-# *
 @stopwatch
 def read_frame(video):
     success, image = video.read()
     return image if success else None
 
 
-# *
 @stopwatch
 def threshold(image):
     # Convert to grayscale
@@ -299,7 +309,6 @@ def threshold(image):
     return edge_img
 
 
-# *
 @stopwatch
 def detect_wall(edge_img, debug_img) -> Rectangle | None:
     # Apply closing
@@ -329,7 +338,6 @@ def detect_wall(edge_img, debug_img) -> Rectangle | None:
     return wall_rect
 
 
-# *
 @stopwatch
 def detect_ellipses(edge_img, image, debug_img) -> List[Ellipse | None]:
     # Apply closing
@@ -386,7 +394,6 @@ def detect_ellipses(edge_img, image, debug_img) -> List[Ellipse | None]:
     return ellipses
 
 
-# *
 @stopwatch
 def order_wall_points(wall_rect: Rectangle) -> Rectangle:
     # Separate points in top and bottom and then order by x
@@ -400,7 +407,6 @@ def order_wall_points(wall_rect: Rectangle) -> Rectangle:
     return wall_rect
 
 
-# *
 @stopwatch
 def detect_wall_pose(wall_rect: Rectangle, debug_img) -> Pose | None:
     # points ordered [TopLeft, TopRight, BottLeft, BottRight]
@@ -424,7 +430,6 @@ def detect_wall_pose(wall_rect: Rectangle, debug_img) -> Pose | None:
     return Pose(r, t)
 
 
-# *
 @stopwatch
 def get_3d_wall_corners(wall_rect: Rectangle, plate_pose: Pose, wall_pose: Pose, debug_img) -> list[np.ndarray]:
     # points ordered [TopLeft, TopRight, BottLeft, BottRight]
@@ -448,7 +453,6 @@ def get_3d_wall_corners(wall_rect: Rectangle, plate_pose: Pose, wall_pose: Pose,
     return wall_3d_points
 
 
-# *
 @stopwatch
 def detect_wall_line(image, wall_rect: Rectangle, wall_3d_points: list[np.ndarray], plate_pose: Pose, debug_img):
     margin = 5  # Prevent black pixel of contours
@@ -524,7 +528,6 @@ def detect_wall_line(image, wall_rect: Rectangle, wall_3d_points: list[np.ndarra
     return top_3d_point, bottom_3d_point
 
 
-# *
 @stopwatch
 def detect_plate_laser_point(hsv_img, plate_pose: Pose, debug_img):
     camera_matrix, distortion = get_info_solvepnp()
@@ -580,7 +583,6 @@ def detect_plate_laser_point(hsv_img, plate_pose: Pose, debug_img):
     return intersection_3d
 
 
-# *
 @stopwatch
 def detect_object_points(hsv_img, out_file: OutputXYZ, plate_pose: Pose, laser_plane, debug_img):
     camera_matrix, distortion = get_info_solvepnp()
@@ -625,7 +627,7 @@ def detect_object_points(hsv_img, out_file: OutputXYZ, plate_pose: Pose, laser_p
         cv.imshow("Laser_obj", img_out)
 
 
-def main():
+def main(file: str):
     if Parameters.win_main:
         cv.namedWindow("Main")
     if Parameters.win_thres:
@@ -637,8 +639,8 @@ def main():
     if Parameters.win_plate_homo:
         cv.namedWindow("Plate_homo")
 
-    video = cv.VideoCapture('.\\data\\ball.mov')
-    output_filename = '.\\data\\output\\' + time.strftime("%Y-%m-%d_%H.%M.%S") + '_ball'
+    video = cv.VideoCapture('.\\data\\' + file + '.mov')
+    output_filename = '.\\data\\output\\' + time.strftime("%Y-%m-%d_%H.%M.%S") + '_' + file
     parameters.init_parameters()
 
     out_file = OutputXYZ(output_filename)
@@ -685,7 +687,7 @@ def main():
             ellipses_centers_int.append([int(ellipse.center.x), int(ellipse.center.y)])
 
         # An ellipse to rule them all
-        ellipse_master = ransac(ellipses_centers, debug_img)
+        ellipse_master = ransac_ellipses(ellipses_centers, debug_img)
         if ellipse_master is None:
             continue
 
@@ -726,4 +728,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('file', choices=['cat', 'cube', 'ball'])
+    args = parser.parse_args()
+    main(args.file)
