@@ -646,7 +646,7 @@ def main(file: str):
     out_file = OutputXYZ(output_filename)
     start_time = time.time()
 
-    # Loop the frames in the video and take NUM_OF_FRAMES equally spaced frames
+    # Loop the frames in the video
     video_length = int(video.get(cv.CAP_PROP_FRAME_COUNT))
     for frame_i in range(video_length):
         frame_time = time.time() - start_time
